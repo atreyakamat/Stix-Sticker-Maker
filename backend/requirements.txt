@@ -1,0 +1,23 @@
+# Core
+fastapi==0.109.0
+uvicorn[standard]==0.27.0
+python-multipart==0.0.6
+aiofiles==23.2.1
+
+# Image Processing
+Pillow==10.2.0
+numpy==1.26.3
+opencv-python==4.9.0.80
+
+# AI Background Removal - BiRefNet via transformers
+torch>=2.0.0
+torchvision>=0.15.0
+transformers>=4.36.0
+huggingface-hub>=0.20.0
+einops
+kornia
+timm
+
+# Utilities
+tqdm==4.66.1
+scipy>=1.11.0
