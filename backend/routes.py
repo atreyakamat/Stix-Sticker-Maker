@@ -35,6 +35,10 @@ class JobResponse(BaseModel):
     progress: int
     error: Optional[str] = None
     paths: dict = {}
+    # Validation metadata
+    edge_confidence: Optional[str] = None
+    warnings: List[str] = []
+    needs_review: bool = False
 
 
 class BorderRequest(BaseModel):
@@ -50,7 +54,7 @@ class BatchExportRequest(BaseModel):
 
 # Helper Functions
 def process_image_task(job_id: str, image_path: Path):
-    """Background task to process an image"""
+    """Background task to process an image using EDGE-FIRST pipeline"""
     try:
         job_manager.update_status(job_id, JobStatus.PROCESSING, 10)
         
@@ -58,12 +62,12 @@ def process_image_task(job_id: str, image_path: Path):
         image = Image.open(image_path)
         job_manager.update_status(job_id, JobStatus.PROCESSING, 20)
         
-        # Process through pipeline
-        results = process_sticker(image, use_edge_detection=True)
+        # Process through EDGE-FIRST pipeline
+        result = process_sticker(image)
         job_manager.update_status(job_id, JobStatus.PROCESSING, 80)
         
         # Save results
-        paths = save_results(results, OUTPUT_DIR, job_id)
+        paths = save_results(result, OUTPUT_DIR, job_id)
         job_manager.update_status(job_id, JobStatus.PROCESSING, 95)
         
         # Convert paths to relative URLs
@@ -72,10 +76,29 @@ def process_image_task(job_id: str, image_path: Path):
             for key, path in paths.items()
         }
         
+        # Store validation metadata in job
+        job = job_manager.get_job(job_id)
+        if job:
+            job.edge_confidence = result.edge_confidence.value
+            job.warnings = result.warnings
+            job.needs_review = (
+                result.edge_confidence.value in ['low', 'failed'] or
+                not result.contour_closed or
+                result.ai_escaped_contour
+            )
+        
         job_manager.set_paths(job_id, url_paths)
         job_manager.update_status(job_id, JobStatus.COMPLETE, 100)
         
+        # Log validation info
+        print(f"✅ Processed {job_id}: edge_confidence={result.edge_confidence.value}")
+        if result.warnings:
+            for w in result.warnings:
+                print(f"   ⚠️ {w}")
+        
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         job_manager.set_error(job_id, str(e))
 
 
@@ -141,7 +164,10 @@ async def get_job_status(job_id: str):
         status=job.status.value,
         progress=job.progress,
         error=job.error,
-        paths=job.paths
+        paths=job.paths,
+        edge_confidence=getattr(job, 'edge_confidence', None),
+        warnings=getattr(job, 'warnings', []),
+        needs_review=getattr(job, 'needs_review', False)
     )
 
 
@@ -156,7 +182,10 @@ async def get_all_jobs():
             status=job.status.value,
             progress=job.progress,
             error=job.error,
-            paths=job.paths
+            paths=job.paths,
+            edge_confidence=getattr(job, 'edge_confidence', None),
+            warnings=getattr(job, 'warnings', []),
+            needs_review=getattr(job, 'needs_review', False)
         )
         for job in jobs
     ]
