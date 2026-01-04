@@ -1,0 +1,26 @@
+version: '3.8'
+
+services:
+  backend:
+    build: ./backend
+    container_name: stix-backend
+    restart: unless-stopped
+    volumes:
+      # Cache huggingface models so we don't redownload on restart
+      - stix_model_cache:/root/.cache/huggingface
+    ports:
+      - "8000:8000"
+    environment:
+      - HF_HOME=/root/.cache/huggingface
+
+  frontend:
+    build: ./frontend
+    container_name: stix-frontend
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  stix_model_cache:

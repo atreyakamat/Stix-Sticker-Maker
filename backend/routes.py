@@ -22,9 +22,7 @@ from mask_utils import composite_with_border, hex_to_rgb
 router = APIRouter()
 
 # Directories
-BASE_DIR = Path(__file__).parent
-UPLOAD_DIR = BASE_DIR / "uploads"
-OUTPUT_DIR = BASE_DIR / "output"
+from config import UPLOAD_DIR, OUTPUT_DIR
 
 
 # Request/Response Models
