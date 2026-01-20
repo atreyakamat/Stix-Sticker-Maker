@@ -19,9 +19,15 @@ if not exist "%PROJECT_PATH%" (
     exit /b 1
 )
 
+:: Kill any existing Stix processes to ensure clean start
+echo  [0/3] Cleaning up old processes...
+taskkill /f /fi "WINDOWTITLE eq Stix Backend*" > nul 2>&1
+taskkill /f /fi "WINDOWTITLE eq Stix Frontend*" > nul 2>&1
+timeout /t 2 /nobreak > nul
+
 echo  [1/3] Starting Backend Server...
 cd /d "%PROJECT_PATH%\backend"
-start "Stix Backend" cmd /k "uvicorn main:app --port 8000"
+start "Stix Backend" cmd /k "uvicorn main:app --reload --port 8000"
 
 :: Wait for backend to start
 echo  [2/3] Waiting for backend to initialize...

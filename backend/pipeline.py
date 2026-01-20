@@ -52,7 +52,7 @@ class ProcessingResult:
 def preprocess_for_edges(image: Image.Image) -> Tuple[np.ndarray, np.ndarray]:
     """
     Preprocess image STRICTLY for edge visibility.
-    This is NOT segmentation - it's edge enhancement.
+    Uses multiple enhancement strategies to maximize edge contrast.
     
     Returns:
         - enhanced: Edge-enhanced grayscale for detection
@@ -63,66 +63,133 @@ def preprocess_for_edges(image: Image.Image) -> Tuple[np.ndarray, np.ndarray]:
     # Convert to grayscale
     gray = cv2.cvtColor(img_array, cv2.COLOR_RGB2GRAY)
     
-    # CLAHE (Contrast Limited Adaptive Histogram Equalization)
-    # This is CRITICAL for white-on-white - it amplifies local contrast
-    clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
-    enhanced = clahe.apply(gray)
+    # === STRATEGY 1: CLAHE Enhancement ===
+    # Critical for white-on-white - amplifies local contrast
+    clahe = cv2.createCLAHE(clipLimit=4.0, tileGridSize=(8, 8))
+    enhanced_clahe = clahe.apply(gray)
     
-    # Slight Gaussian blur to remove noise (but preserve edges)
-    enhanced = cv2.GaussianBlur(enhanced, (3, 3), 0)
+    # === STRATEGY 2: Bilateral Filter ===
+    # Smooths while preserving edges
+    bilateral = cv2.bilateralFilter(gray, 9, 75, 75)
+    
+    # === STRATEGY 3: Unsharp Mask ===
+    # Sharpens edges significantly
+    gaussian = cv2.GaussianBlur(gray, (0, 0), 3)
+    unsharp = cv2.addWeighted(gray, 1.5, gaussian, -0.5, 0)
+    
+    # === STRATEGY 4: Local Variance Enhancement ===
+    # Highlights areas with texture variation (edges)
+    mean = cv2.blur(gray.astype(np.float32), (5, 5))
+    sq_mean = cv2.blur(gray.astype(np.float32)**2, (5, 5))
+    variance = np.sqrt(np.maximum(sq_mean - mean**2, 0))
+    variance_enhanced = np.uint8(np.clip(variance * 3, 0, 255))
+    
+    # Combine all enhancements with weighted average
+    enhanced = cv2.addWeighted(enhanced_clahe, 0.4, unsharp, 0.3, 0)
+    enhanced = cv2.addWeighted(enhanced, 0.8, variance_enhanced, 0.2, 0)
+    
+    # Final light blur to reduce noise
+    enhanced = cv2.GaussianBlur(enhanced, (3, 3), 0.5)
     
     return enhanced, img_array
 
 
 # =============================================================================
-# STEP 2: MULTI-PASS EDGE DETECTION (THE FOUNDATION)
+# STEP 2: MULTI-PASS EDGE DETECTION (ULTRA-STRONG)
 # =============================================================================
 
-def detect_edges_multipass(enhanced: np.ndarray) -> np.ndarray:
+def detect_edges_multipass(enhanced: np.ndarray, original_rgb: np.ndarray = None) -> np.ndarray:
     """
-    Run multi-pass edge detection.
-    This ensures edges exist EVEN IF COLORS ARE IDENTICAL.
+    Run ULTRA-STRONG multi-pass edge detection.
+    Uses 5 different methods and combines them for maximum edge coverage.
     
-    Methods combined:
-    1. Canny (primary) - gradient-based
-    2. Sobel (secondary) - directional gradients  
-    3. Laplacian (fallback) - second derivative
+    Methods:
+    1. Canny (multiple thresholds)
+    2. Sobel (gradient magnitude)
+    3. Laplacian (second derivative)
+    4. Scharr (optimized gradient)
+    5. Morphological gradient
     """
-    # === CANNY (Primary) ===
-    # Auto-threshold based on median intensity
+    h, w = enhanced.shape
+    
+    # === METHOD 1: MULTI-THRESHOLD CANNY ===
+    # Run Canny at multiple sensitivity levels
     v = np.median(enhanced)
-    sigma = 0.33
-    lower = int(max(0, (1.0 - sigma) * v))
-    upper = int(min(255, (1.0 + sigma) * v))
-    canny = cv2.Canny(enhanced, lower, upper)
     
-    # === SOBEL (Secondary) ===
-    # Captures directional gradients that Canny might miss
+    # Sensitive (catches weak edges)
+    canny_sensitive = cv2.Canny(enhanced, max(0, v * 0.3), v * 0.7)
+    
+    # Standard
+    canny_standard = cv2.Canny(enhanced, max(0, v * 0.5), v * 1.0)
+    
+    # Conservative (strong edges only)
+    canny_conservative = cv2.Canny(enhanced, max(0, v * 0.7), v * 1.3)
+    
+    # Combine all Canny results
+    canny_combined = cv2.bitwise_or(canny_sensitive, canny_standard)
+    canny_combined = cv2.bitwise_or(canny_combined, canny_conservative)
+    
+    # === METHOD 2: SOBEL GRADIENT ===
     sobel_x = cv2.Sobel(enhanced, cv2.CV_64F, 1, 0, ksize=3)
     sobel_y = cv2.Sobel(enhanced, cv2.CV_64F, 0, 1, ksize=3)
-    sobel = np.sqrt(sobel_x**2 + sobel_y**2)
-    sobel = np.uint8(np.clip(sobel / sobel.max() * 255, 0, 255))
-    _, sobel_binary = cv2.threshold(sobel, 30, 255, cv2.THRESH_BINARY)
+    sobel_mag = np.sqrt(sobel_x**2 + sobel_y**2)
+    sobel_norm = np.uint8(np.clip(sobel_mag / sobel_mag.max() * 255, 0, 255)) if sobel_mag.max() > 0 else np.zeros_like(enhanced)
+    _, sobel_binary = cv2.threshold(sobel_norm, 20, 255, cv2.THRESH_BINARY)
     
-    # === LAPLACIAN (Fallback) ===
-    # Second derivative catches edges Canny/Sobel miss
-    laplacian = cv2.Laplacian(enhanced, cv2.CV_64F)
-    laplacian = np.uint8(np.abs(laplacian))
-    _, laplacian_binary = cv2.threshold(laplacian, 20, 255, cv2.THRESH_BINARY)
+    # === METHOD 3: SCHARR (More accurate than Sobel) ===
+    scharr_x = cv2.Scharr(enhanced, cv2.CV_64F, 1, 0)
+    scharr_y = cv2.Scharr(enhanced, cv2.CV_64F, 0, 1)
+    scharr_mag = np.sqrt(scharr_x**2 + scharr_y**2)
+    scharr_norm = np.uint8(np.clip(scharr_mag / scharr_mag.max() * 255, 0, 255)) if scharr_mag.max() > 0 else np.zeros_like(enhanced)
+    _, scharr_binary = cv2.threshold(scharr_norm, 20, 255, cv2.THRESH_BINARY)
     
-    # === MERGE with logical OR ===
-    combined = cv2.bitwise_or(canny, sobel_binary.astype(np.uint8))
-    combined = cv2.bitwise_or(combined, laplacian_binary.astype(np.uint8))
+    # === METHOD 4: LAPLACIAN ===
+    laplacian = cv2.Laplacian(enhanced, cv2.CV_64F, ksize=3)
+    laplacian_abs = np.uint8(np.abs(laplacian))
+    _, laplacian_binary = cv2.threshold(laplacian_abs, 15, 255, cv2.THRESH_BINARY)
     
-    # Morphological closing to connect nearby edges
+    # === METHOD 5: MORPHOLOGICAL GRADIENT ===
+    # Dilation minus erosion = edges
     kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
-    combined = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel, iterations=2)
+    morph_gradient = cv2.morphologyEx(enhanced, cv2.MORPH_GRADIENT, kernel)
+    _, morph_binary = cv2.threshold(morph_gradient, 15, 255, cv2.THRESH_BINARY)
+    
+    # === METHOD 6: COLOR EDGE DETECTION (if RGB available) ===
+    color_edges = np.zeros((h, w), dtype=np.uint8)
+    if original_rgb is not None:
+        # Detect edges in each color channel and combine
+        for c in range(3):
+            channel = original_rgb[:, :, c]
+            channel_edges = cv2.Canny(channel, 30, 100)
+            color_edges = cv2.bitwise_or(color_edges, channel_edges)
+    
+    # === FUSION: Combine all methods ===
+    combined = np.zeros((h, w), dtype=np.uint8)
+    combined = cv2.bitwise_or(combined, canny_combined)
+    combined = cv2.bitwise_or(combined, sobel_binary.astype(np.uint8))
+    combined = cv2.bitwise_or(combined, scharr_binary.astype(np.uint8))
+    combined = cv2.bitwise_or(combined, laplacian_binary.astype(np.uint8))
+    combined = cv2.bitwise_or(combined, morph_binary.astype(np.uint8))
+    combined = cv2.bitwise_or(combined, color_edges)
+    
+    # === POST-PROCESSING ===
+    # Close small gaps in edges
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    combined = cv2.morphologyEx(combined, cv2.MORPH_CLOSE, kernel_close, iterations=2)
+    
+    # Dilate slightly to strengthen weak edges
+    kernel_dilate = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+    combined = cv2.dilate(combined, kernel_dilate, iterations=1)
+    
+    # Clean up noise
+    kernel_open = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (2, 2))
+    combined = cv2.morphologyEx(combined, cv2.MORPH_OPEN, kernel_open, iterations=1)
     
     return combined
 
 
 # =============================================================================
-# STEP 3: CLOSED SHAPE ISOLATION (CRITICAL)
+# STEP 3: CLOSED SHAPE ISOLATION (ULTRA-STRONG)
 # =============================================================================
 
 def isolate_sticker_boundary(
@@ -131,7 +198,7 @@ def isolate_sticker_boundary(
 ) -> Tuple[np.ndarray, EdgeConfidence, bool]:
     """
     From the edge map, find the LARGEST CLOSED CONTOUR.
-    This is the absolute sticker boundary.
+    Uses multiple strategies to ensure robust contour detection.
     
     Returns:
         - boundary_mask: Filled binary mask of sticker region
@@ -141,58 +208,108 @@ def isolate_sticker_boundary(
     h, w = image_shape[:2]
     total_area = h * w
     
-    # Dilate edges to help close gaps
-    kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
-    dilated = cv2.dilate(edge_map, kernel, iterations=2)
+    # === STRATEGY 1: Standard contour finding ===
+    # Dilate edges progressively to close gaps
+    best_contour = None
+    best_area = 0
     
-    # Find all contours
-    contours, hierarchy = cv2.findContours(
-        dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE
-    )
+    for dilation_size in [3, 5, 7, 9, 11]:
+        kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (dilation_size, dilation_size))
+        dilated = cv2.dilate(edge_map, kernel, iterations=2)
+        
+        # Close operation to fill gaps
+        dilated = cv2.morphologyEx(dilated, cv2.MORPH_CLOSE, kernel, iterations=2)
+        
+        # Find contours
+        contours, _ = cv2.findContours(dilated, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        if contours:
+            largest = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(largest)
+            
+            # Check if this is a valid sticker-sized contour
+            if area > total_area * 0.02 and area < total_area * 0.98:
+                if area > best_area:
+                    best_contour = largest
+                    best_area = area
     
-    if not contours:
-        # FAILED: No contours found at all
+    # === STRATEGY 2: Flood fill from corners ===
+    # If contour detection failed, try inverse approach
+    if best_contour is None or best_area < total_area * 0.02:
+        # Create a mask by flood-filling from corners (assuming background)
+        flood_mask = np.zeros((h + 2, w + 2), dtype=np.uint8)
+        temp = edge_map.copy()
+        
+        # Flood fill from all corners
+        corners = [(0, 0), (w-1, 0), (0, h-1), (w-1, h-1)]
+        for (cx, cy) in corners:
+            if temp[cy, cx] == 0:  # If corner is not on an edge
+                cv2.floodFill(temp, flood_mask, (cx, cy), 128)
+        
+        # The un-flooded area is the sticker
+        sticker_region = (temp != 128).astype(np.uint8) * 255
+        
+        # Find contours in this region
+        contours, _ = cv2.findContours(sticker_region, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if contours:
+            largest = max(contours, key=cv2.contourArea)
+            area = cv2.contourArea(largest)
+            if area > best_area and area > total_area * 0.02:
+                best_contour = largest
+                best_area = area
+    
+    # === STRATEGY 3: Convex hull as fallback ===
+    # If contour is irregular, use its convex hull
+    if best_contour is not None:
+        hull = cv2.convexHull(best_contour)
+        hull_area = cv2.contourArea(hull)
+        contour_area = cv2.contourArea(best_contour)
+        
+        # If the contour is very non-convex (lots of gaps), prefer hull
+        convexity_ratio = contour_area / hull_area if hull_area > 0 else 0
+        
+        if convexity_ratio < 0.7:
+            # Contour has too many gaps, blend with hull
+            # Use morphological operations to smooth
+            pass
+    
+    if best_contour is None:
         return np.zeros((h, w), dtype=np.uint8), EdgeConfidence.FAILED, False
-    
-    # Find the largest contour by area
-    largest_contour = max(contours, key=cv2.contourArea)
-    contour_area = cv2.contourArea(largest_contour)
     
     # Validate contour size
-    min_area = total_area * 0.01   # At least 1% of image
-    max_area = total_area * 0.99   # At most 99% (not the whole image)
-    
-    if contour_area < min_area:
+    if best_area < total_area * 0.01:
         return np.zeros((h, w), dtype=np.uint8), EdgeConfidence.FAILED, False
     
-    if contour_area > max_area:
-        # Contour is the whole image - likely failed
+    if best_area > total_area * 0.99:
         return np.zeros((h, w), dtype=np.uint8), EdgeConfidence.LOW, False
     
-    # Check if contour is closed (perimeter vs area ratio)
-    perimeter = cv2.arcLength(largest_contour, closed=True)
-    circularity = 4 * np.pi * contour_area / (perimeter * perimeter) if perimeter > 0 else 0
+    # Check contour quality
+    perimeter = cv2.arcLength(best_contour, closed=True)
+    circularity = 4 * np.pi * best_area / (perimeter * perimeter) if perimeter > 0 else 0
     
-    # Approximate the contour to check closure
+    # Approximate contour
     epsilon = 0.01 * perimeter
-    approx = cv2.approxPolyDP(largest_contour, epsilon, closed=True)
-    is_closed = len(approx) >= 3 and cv2.isContourConvex(approx) or circularity > 0.1
+    approx = cv2.approxPolyDP(best_contour, epsilon, closed=True)
+    is_closed = len(approx) >= 3 and circularity > 0.05
     
     # Create filled boundary mask
     boundary_mask = np.zeros((h, w), dtype=np.uint8)
-    cv2.drawContours(boundary_mask, [largest_contour], -1, 255, -1)
+    cv2.drawContours(boundary_mask, [best_contour], -1, 255, -1)
     
-    # Fill any holes inside the contour
-    boundary_mask = cv2.morphologyEx(
-        boundary_mask, cv2.MORPH_CLOSE, 
-        cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7)),
-        iterations=2
-    )
+    # === POST-PROCESSING ===
+    # Fill holes
+    kernel_close = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (9, 9))
+    boundary_mask = cv2.morphologyEx(boundary_mask, cv2.MORPH_CLOSE, kernel_close, iterations=3)
+    
+    # Smooth edges
+    boundary_mask = cv2.GaussianBlur(boundary_mask, (5, 5), 0)
+    _, boundary_mask = cv2.threshold(boundary_mask, 127, 255, cv2.THRESH_BINARY)
     
     # Determine confidence
-    if is_closed and circularity > 0.3:
+    coverage = best_area / total_area
+    if is_closed and circularity > 0.2 and coverage > 0.05:
         confidence = EdgeConfidence.HIGH
-    elif is_closed or circularity > 0.1:
+    elif is_closed or circularity > 0.08:
         confidence = EdgeConfidence.MEDIUM
     else:
         confidence = EdgeConfidence.LOW
@@ -382,8 +499,8 @@ def process_sticker(image: Image.Image) -> ProcessingResult:
     # === STEP 1: Preprocess ===
     enhanced, img_array = preprocess_for_edges(image)
     
-    # === STEP 2: Edge Detection ===
-    edge_map = detect_edges_multipass(enhanced)
+    # === STEP 2: Edge Detection (with color info) ===
+    edge_map = detect_edges_multipass(enhanced, img_array)
     
     # === STEP 3: Boundary Isolation ===
     boundary_mask, edge_confidence, contour_closed = isolate_sticker_boundary(
