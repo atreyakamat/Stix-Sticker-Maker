@@ -1,132 +1,142 @@
-# Stix - Sticker Background Removal & Generator Platform
+# 🎨 Stix - AI Sticker Maker
 
-A production-ready, Canva-quality sticker creation platform with AI-powered background removal, mask-based editing, border generation, and batch processing.
+A professional-grade sticker background removal and editing platform. Extract stickers from any image with AI precision, manually refine edges, and export production-ready transparent PNGs.
 
-![Stix](https://img.shields.io/badge/Status-Production%20Ready-brightgreen) ![Python](https://img.shields.io/badge/Python-3.11+-blue) ![React](https://img.shields.io/badge/React-18+-61DAFB)
+![Stix](https://img.shields.io/badge/Version-1.0-blue) ![Python](https://img.shields.io/badge/Python-3.10+-green) ![React](https://img.shields.io/badge/React-18+-purple)
 
-## ✨ Features
+## ✨ Key Features
 
-- **🎯 AI Background Removal** - BiRefNet-powered segmentation for highest quality results
-- **✂️ Edge Detection** - Handles white-on-white and low-contrast stickers
-- **🎨 Canva-Style Borders** - Mask-based border generation with custom colors
-- **📦 Batch Processing** - Upload and process multiple stickers at once
-- **⚡ Real-time Preview** - Instant feedback on border adjustments
-- **📥 Flexible Export** - Individual PNGs or batch ZIP download
+| Feature | Description |
+|---------|-------------|
+| **Edge-First AI** | BiRefNet model with geometric edge detection for white-on-white stickers |
+| **Manual Editing** | Brush tools to erase/restore mask areas with full undo/redo |
+| **Re-Background** | Test sticker edges on different backgrounds to spot defects |
+| **Canva-Style Borders** | Add customizable outlines with smooth, rounded edges |
+| **Batch Processing** | Upload and process multiple images at once |
+| **Ephemeral Storage** | Auto-cleanup keeps your system clean (1-hour retention) |
 
-## 🏗️ Architecture
-
-```
-Stix-Sticker-Maker/
-├── backend/              # Python FastAPI server
-│   ├── main.py          # Application entry point
-│   ├── model_loader.py  # BiRefNet model management
-│   ├── pipeline.py      # 5-stage processing pipeline
-│   ├── mask_utils.py    # Mask manipulation utilities
-│   ├── jobs.py          # Batch job manager
-│   └── routes.py        # API endpoints
-│
-└── frontend/            # React Vite application
-    └── src/
-        ├── App.jsx      # Main application
-        ├── api.js       # API client
-        └── components/
-            ├── UploadZone.jsx
-            ├── Gallery.jsx
-            └── Editor.jsx
-```
+---
 
 ## 🚀 Quick Start
 
-### Backend Setup
+### Prerequisites
+- Python 3.10+
+- Node.js 18+
+- ~500MB disk space (for AI model)
+
+### 1. Start the Backend
 
 ```bash
 cd backend
-
-# Create virtual environment
-python -m venv venv
-venv\Scripts\activate  # Windows
-# source venv/bin/activate  # Linux/Mac
-
-# Install dependencies
 pip install -r requirements.txt
-
-# Start server (model will download on first run)
-uvicorn main:app --reload --host 0.0.0.0 --port 8000
+uvicorn main:app --port 8000
 ```
 
-### Frontend Setup
+> ⏳ First run downloads the AI model (~400MB). Watch the terminal for "✅ Model loaded successfully!"
+
+### 2. Start the Frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Start development server
 npm run dev
 ```
 
-Then open http://localhost:5173 in your browser.
+### 3. Open the App
 
-## 📡 API Reference
+Navigate to **http://localhost:5173** in your browser.
+
+---
+
+## 🖼️ How to Use
+
+### Step 1: Upload
+Drag and drop sticker images (PNG, JPG, WEBP) onto the upload zone.
+
+### Step 2: Wait for Processing
+The AI will automatically:
+1. Detect sticker edges (works even on white backgrounds)
+2. Generate a precise mask
+3. Create a transparent PNG
+
+### Step 3: Refine (Optional)
+Click on any processed sticker to open the editor where you can:
+- **Erase** (🧹) - Remove background areas the AI missed
+- **Restore** (✨) - Bring back parts that were accidentally removed
+- **Test Backgrounds** - Preview on white, black, gradients to spot edge issues
+
+### Step 4: Export
+- Add a border if desired
+- Download individual PNGs or batch export as ZIP
+
+---
+
+## 📁 Project Structure
+
+```
+Stix-Sticker-Maker/
+├── backend/                 # Python FastAPI server
+│   ├── main.py             # App entry point
+│   ├── pipeline.py         # 6-stage AI processing
+│   ├── routes.py           # API endpoints
+│   ├── mask_utils.py       # Mask manipulation functions
+│   ├── model_loader.py     # BiRefNet model loading
+│   ├── jobs.py             # Job queue management
+│   └── config.py           # Storage & cleanup settings
+│
+├── frontend/               # React + Vite UI
+│   └── src/
+│       ├── App.jsx         # Main application
+│       ├── api.js          # Backend API client
+│       ├── index.css       # Design system
+│       └── components/
+│           ├── UploadZone.jsx
+│           ├── Gallery.jsx
+│           └── Editor.jsx
+│
+├── docker-compose.yml      # Docker deployment
+└── DEPLOYMENT.md           # Server deployment guide
+```
+
+---
+
+## 🔌 API Reference
 
 | Endpoint | Method | Description |
 |----------|--------|-------------|
 | `/api/upload` | POST | Upload images for processing |
-| `/api/jobs/{id}` | GET | Get job status |
-| `/api/jobs` | GET | List all jobs |
-| `/api/border` | POST | Generate border with color/thickness |
-| `/api/download/{id}` | GET | Download processed image |
-| `/api/export/batch` | POST | Export multiple as ZIP |
+| `/api/jobs` | GET | List all processing jobs |
+| `/api/jobs/{id}` | GET | Get job status and paths |
+| `/api/border` | POST | Generate border for a sticker |
+| `/api/mask/save` | POST | Save edited mask |
+| `/api/rebackground` | POST | Generate background preview |
+| `/api/download/{id}` | GET | Download processed sticker |
 
-## 🔧 Processing Pipeline
+---
 
-1. **Preprocess** - Fix orientation, resize, normalize colors
-2. **Edge Detection** - Canny + contours for sticker boundary
-3. **AI Segmentation** - BiRefNet for high-quality mask generation
-4. **Mask Refinement** - Morphological cleanup and smoothing
-5. **Output** - Transparent PNG with optional border
+## 🐳 Docker Deployment
 
-## 🎨 Border Generation
+For production deployment on a homelab or server:
 
-Borders are generated using mask expansion, not stroke drawing:
+```bash
+docker-compose up -d --build
+```
 
-1. Original mask is expanded outward by thickness pixels
-2. Expanded mask minus original = border region
-3. Border region is filled with user-selected color
-4. Layers composited: border → sticker
+See [DEPLOYMENT.md](./DEPLOYMENT.md) for full instructions.
 
-This ensures consistent, print-ready borders regardless of shape complexity.
+---
 
-## ⚙️ Configuration
+## 🛠️ Configuration
 
-### Backend
-- Output directory: `backend/output/`
-- Upload directory: `backend/uploads/`
-- Max image size: 2048px (configurable in pipeline.py)
+Edit `backend/config.py` to customize:
 
-### Frontend
-- API URL: `http://localhost:8000` (configurable in api.js)
+```python
+FILE_RETENTION_SECONDS = 3600   # How long to keep files (default: 1 hour)
+CLEANUP_INTERVAL_SECONDS = 600  # Cleanup check interval (default: 10 min)
+```
 
-## 📋 Requirements
+---
 
-### Backend
-- Python 3.11+
-- 4GB+ RAM (for BiRefNet model)
-- GPU optional but recommended
+## 📝 License
 
-### Frontend
-- Node.js 20.19+ or 22.12+
-- Modern browser with Canvas support
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create your feature branch
-3. Commit your changes
-4. Push to the branch
-5. Open a Pull Request
-
-## 📄 License
-
-MIT License - feel free to use for commercial projects.
+MIT License - Use freely for personal or commercial projects.

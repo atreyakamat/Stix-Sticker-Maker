@@ -1,7 +1,14 @@
+/**
+ * UploadZone Component
+ * 
+ * Drag-and-drop upload area for sticker images.
+ * Accepts PNG, JPG, WEBP files. Supports batch uploads.
+ */
+
 import { useCallback } from 'react'
 import { useDropzone } from 'react-dropzone'
 
-function UploadZone({ onUpload }) {
+function UploadZone({ onUpload, isUploading = false }) {
     const onDrop = useCallback((acceptedFiles) => {
         if (acceptedFiles.length > 0) {
             onUpload(acceptedFiles)
@@ -16,55 +23,70 @@ function UploadZone({ onUpload }) {
             'image/webp': ['.webp'],
             'image/heic': ['.heic']
         },
-        multiple: true
+        multiple: true,
+        disabled: isUploading
     })
 
     return (
-        <div
-            {...getRootProps()}
-            className={`upload-zone ${isDragActive ? 'active' : ''}`}
-        >
-            <input {...getInputProps()} />
+        <div className="upload-container">
+            <div
+                {...getRootProps()}
+                className={`upload-zone ${isDragActive ? 'active' : ''} ${isUploading ? 'uploading' : ''}`}
+            >
+                <input {...getInputProps()} />
 
-            <div className="upload-icon">
-                {isDragActive ? '📥' : '✨'}
+                {/* Icon */}
+                <div className="upload-icon">
+                    {isUploading ? (
+                        <div className="spinner large" />
+                    ) : isDragActive ? (
+                        '📥'
+                    ) : (
+                        '✨'
+                    )}
+                </div>
+
+                {/* Main text */}
+                <h2 className="upload-text">
+                    {isUploading
+                        ? 'Uploading...'
+                        : isDragActive
+                            ? 'Drop your stickers here...'
+                            : 'Drop stickers or click to upload'
+                    }
+                </h2>
+
+                {/* Hint */}
+                <p className="upload-hint">
+                    {isUploading
+                        ? 'Please wait while we process your images'
+                        : 'PNG, JPG, WEBP • Batch upload supported'
+                    }
+                </p>
             </div>
 
-            <h2 className="upload-text">
-                {isDragActive
-                    ? 'Drop your stickers here...'
-                    : 'Drop stickers or click to upload'
-                }
-            </h2>
-
-            <p className="upload-hint">
-                Supports PNG, JPG, WEBP • Batch upload supported
-            </p>
-
-            <div style={{ marginTop: '2rem', display: 'flex', gap: '1rem' }}>
-                <div style={{
-                    padding: '0.75rem 1rem',
-                    background: 'rgba(99, 102, 241, 0.1)',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.875rem'
-                }}>
-                    🎯 AI Background Removal
+            {/* Feature pills */}
+            <div className="feature-pills">
+                <div className="feature-pill">
+                    <span className="feature-icon">🎯</span>
+                    <div className="feature-content">
+                        <span className="feature-title">AI Background Removal</span>
+                        <span className="feature-desc">BiRefNet model for precise extraction</span>
+                    </div>
                 </div>
-                <div style={{
-                    padding: '0.75rem 1rem',
-                    background: 'rgba(139, 92, 246, 0.1)',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.875rem'
-                }}>
-                    ✂️ Edge Detection
+                <div className="feature-pill">
+                    <span className="feature-icon">✂️</span>
+                    <div className="feature-content">
+                        <span className="feature-title">Edge-First Detection</span>
+                        <span className="feature-desc">Works on white-on-white stickers</span>
+                    </div>
                 </div>
-                <div style={{
-                    padding: '0.75rem 1rem',
-                    background: 'rgba(168, 85, 247, 0.1)',
-                    borderRadius: '0.5rem',
-                    fontSize: '0.875rem'
-                }}>
-                    🎨 Custom Borders
+                <div className="feature-pill">
+                    <span className="feature-icon">🎨</span>
+                    <div className="feature-content">
+                        <span className="feature-title">Manual Refinement</span>
+                        <span className="feature-desc">Brush tools for perfect edges</span>
+                    </div>
                 </div>
             </div>
         </div>

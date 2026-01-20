@@ -1,6 +1,16 @@
 # 🚀 Stix Deployment Guide
 
-This guide describes how to deploy the Stix Sticker Maker platform on your homelab or server using Docker. This setup is production-ready, self-healing (restarts automatically), and persists all your data.
+This guide describes how to deploy the Stix Sticker Maker platform on your homelab or server using Docker. This setup is production-ready, self-healing (restarts automatically), and uses ephemeral storage (files auto-delete after 1 hour).
+
+## ✨ Features
+
+- **Edge-First AI Processing**: BiRefNet with geometric edge detection for white-on-white stickers
+- **Manual Mask Editing**: Erase/Restore brushes for pixel-perfect corrections
+- **Re-Background System**: Test stickers on different backgrounds to reveal edge defects
+- **Undo/Redo**: Full history for non-destructive editing
+- **Canva-Style Borders**: Adjustable thickness and color
+- **Batch Processing**: Upload and process multiple stickers at once
+- **Auto-Cleanup**: Ephemeral storage - files auto-delete after 1 hour
 
 ## Prerequisites
 
@@ -26,53 +36,40 @@ That's it!
 
 ---
 
-## 📂 Data & Persistence
+## 📂 Data & Storage
 
-The `docker-compose.yml` is configured to persist your data so you don't lose anything when restarting containers.
+This platform uses **ephemeral storage** by design:
 
-- **Images/Stickers**: Mapped to `./backend/uploads` and `./backend/output` on your host machine.
-- **AI Models**: The BiRefNet model (~400MB) is cached in a Docker volume named `stix_model_cache`. It will only download once.
+- **Uploads & Outputs**: Stored in system temp directory, automatically deleted after 1 hour
+- **AI Models**: Cached in a Docker volume (`stix_model_cache`) to avoid re-downloading
 
 ## 🛠 Management Commands
 
-**View Logs (to check progress or errors):**
+**View Logs:**
 ```bash
 docker-compose logs -f
 ```
-*Tip: On first launch, watch the backend logs. It will take a minute to download the AI model.*
 
 **Stop the Server:**
 ```bash
 docker-compose down
 ```
 
-**Update the App (after changing code):**
+**Update the App:**
 ```bash
 docker-compose up -d --build
 ```
-This forces a rebuild of the Docker images with your latest code changes.
-
-## 🔧 Architecture Overview
-
-*   **Service: `frontend`**
-    *   Builds the React App into highly optimized static files.
-    *   Uses **Nginx** to serve the site and proxy API requests.
-    *   Listens on Port `80`.
-*   **Service: `backend`**
-    *   Runs Python/FastAPI.
-    *   Installs system-level dependencies for OpenCV (`libgl1`).
-    *   Handles all AI processing and file storage.
 
 ## ⚠️ Troubleshooting
 
 **"Upload failed" or 500 Error**
-Check if the AI model is still loading. Run `docker-compose logs -f backend`. You should see "✅ Model loaded successfully!" before using the app.
+Check if the AI model is still loading: `docker-compose logs -f backend`
 
 **Port Conflicts**
-If Port 80 is already used on your server, edit `docker-compose.yml`:
+Edit `docker-compose.yml` to change ports:
 ```yaml
 frontend:
   ports:
-    - "8080:80"  # Change outer port to 8080 (or any other)
+    - "8080:80"  # Change to any available port
 ```
-Then access at `http://localhost:8080`.
+

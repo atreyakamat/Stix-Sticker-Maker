@@ -115,3 +115,85 @@ export function getImageUrl(path) {
     // Path comes as /output/filename.png from backend
     return `http://localhost:8000${path}`
 }
+
+
+/**
+ * Re-analyze an image through the AI pipeline
+ * Useful when initial extraction wasn't perfect
+ */
+export async function reanalyzeJob(jobId) {
+    const response = await fetch(`${API_BASE}/reanalyze/${jobId}`, {
+        method: 'POST',
+    })
+
+    if (!response.ok) {
+        throw new Error('Re-analyze failed')
+    }
+
+    return response.json()
+}
+
+
+// =============================================================================
+// MANUAL MASK EDITING API
+// =============================================================================
+
+export async function saveMask(jobId, maskDataUrl) {
+    const response = await fetch(`${API_BASE}/mask/save`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            job_id: jobId,
+            mask_data: maskDataUrl,
+        }),
+    })
+
+    if (!response.ok) {
+        throw new Error('Failed to save mask')
+    }
+
+    return response.json()
+}
+
+export async function getMaskUrl(jobId) {
+    return `${API_BASE}/mask/${jobId}`
+}
+
+
+// =============================================================================
+// RE-BACKGROUND SYSTEM API
+// =============================================================================
+
+export async function generateRebackground(jobId, options) {
+    const response = await fetch(`${API_BASE}/rebackground`, {
+        method: 'POST',
+        headers: {
+            'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+            job_id: jobId,
+            background_type: options.type || 'solid',
+            color1: options.color1 || '#ffffff',
+            color2: options.color2 || '#000000',
+            gradient_direction: options.direction || 'horizontal',
+        }),
+    })
+
+    if (!response.ok) {
+        throw new Error('Failed to generate background preview')
+    }
+
+    return response.json()
+}
+
+export async function getBackgroundPresets() {
+    const response = await fetch(`${API_BASE}/rebackground/presets`)
+
+    if (!response.ok) {
+        throw new Error('Failed to get background presets')
+    }
+
+    return response.json()
+}
