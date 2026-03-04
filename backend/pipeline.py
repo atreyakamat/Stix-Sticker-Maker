@@ -471,7 +471,7 @@ def check_mask_printable(mask: np.ndarray, min_coverage: float = 0.005) -> bool:
 # MAIN PIPELINE
 # =============================================================================
 
-def process_sticker(image: Image.Image) -> ProcessingResult:
+def process_sticker(image: Image.Image, refine: bool = False) -> ProcessingResult:
     """
     Main sticker processing pipeline.
     
@@ -486,7 +486,7 @@ def process_sticker(image: Image.Image) -> ProcessingResult:
     warnings = []
     
     # Resize if too large
-    max_size = 2048
+    max_size = 2048 if refine else 1024
     w, h = image.size
     if max(w, h) > max_size:
         scale = max_size / max(w, h)

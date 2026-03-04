@@ -622,6 +622,40 @@ body {
 }
 
 /* ========================================
+   ZOOM INDICATOR
+   ======================================== */
+.zoom-indicator {
+  position: absolute;
+  bottom: var(--spacing-md);
+  left: var(--spacing-md);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: rgba(0, 0, 0, 0.65);
+  border-radius: var(--radius-md);
+  backdrop-filter: blur(8px);
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  user-select: none;
+}
+
+.zoom-value {
+  min-width: 38px;
+  text-align: center;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.btn-tiny {
+  width: 26px !important;
+  height: 26px !important;
+  font-size: 0.875rem !important;
+  padding: 0 !important;
+}
+
+/* ========================================
    NEW: Canvas Loading Overlay
    ======================================== */
 .canvas-loading {

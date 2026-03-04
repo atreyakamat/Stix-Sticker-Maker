@@ -57,12 +57,12 @@ function App() {
    * Handle file upload
    * Creates jobs and switches to gallery view
    */
-  const handleUpload = useCallback(async (files) => {
+  const handleUpload = useCallback(async (files, tier) => {
     if (files.length === 0) return
 
     setIsUploading(true)
     try {
-      const newJobs = await uploadImages(files)
+      const newJobs = await uploadImages(files, tier)
 
       if (newJobs.length === 0) {
         alert('No valid images found. Please upload PNG, JPG, or WEBP files.')
@@ -175,9 +175,9 @@ function App() {
 
       {/* Footer */}
       <footer className="footer">
-        <span>Stix v1.0</span>
+        <span>Stix v2.0</span>
         <span className="footer-divider">•</span>
-        <span>AI-Powered Sticker Maker</span>
+        <span>Professional Sticker Studio</span>
       </footer>
     </div>
   )

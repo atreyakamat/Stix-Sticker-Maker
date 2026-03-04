@@ -4,13 +4,13 @@
 
 const API_BASE = 'http://localhost:8000/api'
 
-export async function uploadImages(files) {
+export async function uploadImages(files, tier = 'balanced') {
     const formData = new FormData()
     files.forEach(file => {
         formData.append('files', file)
     })
 
-    const response = await fetch(`${API_BASE}/upload`, {
+    const response = await fetch(`${API_BASE}/upload?tier=${tier}`, {
         method: 'POST',
         body: formData,
     })
@@ -193,6 +193,40 @@ export async function getBackgroundPresets() {
 
     if (!response.ok) {
         throw new Error('Failed to get background presets')
+    }
+
+    return response.json()
+}
+
+
+// =============================================================================
+// EDITOR DATA API
+// =============================================================================
+
+/**
+ * Get all data needed for the mask editor in a single request.
+ * Returns paths, dimensions, confidence, warnings.
+ */
+export async function getEditorData(jobId) {
+    const response = await fetch(`${API_BASE}/editor/${jobId}`)
+
+    if (!response.ok) {
+        throw new Error('Failed to get editor data')
+    }
+
+    return response.json()
+}
+
+
+// =============================================================================
+// MODEL INFO API
+// =============================================================================
+
+export async function getModelInfo() {
+    const response = await fetch(`${API_BASE}/model/info`)
+
+    if (!response.ok) {
+        throw new Error('Failed to get model info')
     }
 
     return response.json()

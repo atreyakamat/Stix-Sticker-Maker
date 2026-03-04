@@ -27,7 +27,12 @@ class Job:
     completed_at: Optional[datetime] = None
     error: Optional[str] = None
     paths: Dict[str, str] = field(default_factory=dict)
-    # Paths will contain: original, mask, transparent, with_border (optional)
+    
+    # Validation metadata
+    edge_confidence: Optional[str] = None
+    warnings: List[str] = field(default_factory=list)
+    needs_review: bool = False
+    tier: str = "balanced"
 
 
 class JobManager:
@@ -37,10 +42,10 @@ class JobManager:
         self._jobs: Dict[str, Job] = {}
         self._lock = threading.Lock()
     
-    def create_job(self, job_id: str, filename: str) -> Job:
+    def create_job(self, job_id: str, filename: str, tier: str = "balanced") -> Job:
         """Create a new job"""
         with self._lock:
-            job = Job(id=job_id, filename=filename)
+            job = Job(id=job_id, filename=filename, tier=tier)
             self._jobs[job_id] = job
             return job
     

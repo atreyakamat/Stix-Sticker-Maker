@@ -18,11 +18,11 @@ from PIL import Image
 from jobs import job_manager, JobStatus
 from pipeline import process_sticker, save_results
 from mask_utils import composite_with_border, hex_to_rgb
+from model_loader import get_model_info
+
+from config import UPLOAD_DIR, OUTPUT_DIR, MASK_DIR, QUALITY_TIERS, DEFAULT_QUALITY_TIER
 
 router = APIRouter()
-
-# Directories
-from config import UPLOAD_DIR, OUTPUT_DIR
 
 
 # Request/Response Models
@@ -51,7 +51,7 @@ class BatchExportRequest(BaseModel):
 
 
 # Helper Functions
-def process_image_task(job_id: str, image_path: Path):
+def process_image_task(job_id: str, image_path: Path, refine: bool = False):
     """Background task to process an image using EDGE-FIRST pipeline"""
     try:
         job_manager.update_status(job_id, JobStatus.PROCESSING, 10)
@@ -61,7 +61,7 @@ def process_image_task(job_id: str, image_path: Path):
         job_manager.update_status(job_id, JobStatus.PROCESSING, 20)
         
         # Process through EDGE-FIRST pipeline
-        result = process_sticker(image)
+        result = process_sticker(image, refine=refine)
         job_manager.update_status(job_id, JobStatus.PROCESSING, 80)
         
         # Save results
@@ -104,13 +104,18 @@ def process_image_task(job_id: str, image_path: Path):
 @router.post("/upload", response_model=List[JobResponse])
 async def upload_images(
     background_tasks: BackgroundTasks,
-    files: List[UploadFile] = File(...)
+    files: List[UploadFile] = File(...),
+    tier: str = DEFAULT_QUALITY_TIER
 ):
     """
     Upload one or more images for processing
     Returns list of job IDs for tracking
     """
     jobs = []
+    
+    # Get refinement setting from tier
+    tier_config = QUALITY_TIERS.get(tier, QUALITY_TIERS[DEFAULT_QUALITY_TIER])
+    refine = tier_config.get("refine", False)
     
     for file in files:
         # Validate file type (flexible check)
@@ -134,10 +139,10 @@ async def upload_images(
             f.write(content)
         
         # Create job
-        job = job_manager.create_job(job_id, file.filename)
+        job = job_manager.create_job(job_id, file.filename, tier=tier)
         
         # Queue processing
-        background_tasks.add_task(process_image_task, job_id, upload_path)
+        background_tasks.add_task(process_image_task, job_id, upload_path, refine=refine)
         
         jobs.append(JobResponse(
             id=job.id,
@@ -329,7 +334,11 @@ async def delete_job(job_id: str):
 
 
 @router.post("/reanalyze/{job_id}")
-async def reanalyze_job(job_id: str, background_tasks: BackgroundTasks):
+async def reanalyze_job(
+    job_id: str, 
+    background_tasks: BackgroundTasks,
+    tier: str = DEFAULT_QUALITY_TIER
+):
     """
     Re-run the AI processing pipeline on an existing job.
     Useful when the initial extraction wasn't perfect.
@@ -337,6 +346,10 @@ async def reanalyze_job(job_id: str, background_tasks: BackgroundTasks):
     job = job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    
+    # Get refinement setting from tier
+    tier_config = QUALITY_TIERS.get(tier, QUALITY_TIERS[DEFAULT_QUALITY_TIER])
+    refine = tier_config.get("refine", False)
     
     # Find the original upload file
     upload_files = list(UPLOAD_DIR.glob(f"{job_id}_*"))
@@ -363,7 +376,7 @@ async def reanalyze_job(job_id: str, background_tasks: BackgroundTasks):
     job.needs_review = False
     
     # Queue reprocessing
-    background_tasks.add_task(process_image_task, job_id, upload_path)
+    background_tasks.add_task(process_image_task, job_id, upload_path, refine=refine)
     
     return {
         "success": True,
@@ -579,3 +592,52 @@ async def get_background_presets():
             {"id": "noise", "name": "Noise Test", "type": "noise"},
         ]
     }
+
+
+# =============================================================================
+# MODEL INFO & SYSTEM ENDPOINTS
+# =============================================================================
+
+@router.get("/model/info")
+async def model_info():
+    """Get information about the loaded segmentation model"""
+    return get_model_info()
+
+
+@router.get("/editor/{job_id}")
+async def get_editor_data(job_id: str):
+    """
+    Get all data needed for the mask editor in a single request.
+    Returns paths to original image, current mask, alpha mask, and transparent output.
+    This feeds the layered canvas architecture in the frontend editor.
+    """
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    if job.status != JobStatus.COMPLETE:
+        raise HTTPException(status_code=400, detail="Job not complete")
+
+    # Check which files exist
+    data = {
+        "job_id": job_id,
+        "filename": job.filename,
+        "paths": {},
+        "dimensions": None,
+        "edge_confidence": getattr(job, "edge_confidence", None),
+        "warnings": getattr(job, "warnings", []),
+        "needs_review": getattr(job, "needs_review", False),
+    }
+
+    for key in ["original", "mask", "alpha", "transparent", "edited_mask", "with_border"]:
+        file_path = OUTPUT_DIR / f"{job_id}_{key}.png"
+        if file_path.exists():
+            data["paths"][key] = f"/output/{job_id}_{key}.png"
+
+    # Get image dimensions
+    original_path = OUTPUT_DIR / f"{job_id}_original.png"
+    if original_path.exists():
+        img = Image.open(original_path)
+        data["dimensions"] = {"width": img.width, "height": img.height}
+
+    return data

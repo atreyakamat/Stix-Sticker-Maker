@@ -13,9 +13,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from routes import router
-from model_loader import load_model, get_model
+from model_loader import load_model, get_model, get_model_info
 
-from config import UPLOAD_DIR, OUTPUT_DIR, FILE_RETENTION_SECONDS, CLEANUP_INTERVAL_SECONDS
+from config import UPLOAD_DIR, OUTPUT_DIR, MASK_DIR, FILE_RETENTION_SECONDS, CLEANUP_INTERVAL_SECONDS
 import time
 import threading
 
@@ -26,13 +26,12 @@ def run_auto_cleanup():
             now = time.time()
             cutoff = now - FILE_RETENTION_SECONDS
             
-            # Check uploads and output
-            for directory in [UPLOAD_DIR, OUTPUT_DIR]:
+            # Check uploads, output, and masks
+            for directory in [UPLOAD_DIR, OUTPUT_DIR, MASK_DIR]:
                 if not directory.exists():
                     continue
                 for file_path in directory.glob("*"):
                     if file_path.is_file():
-                        # If modified time is older than cutoff
                         if file_path.stat().st_mtime < cutoff:
                             try:
                                 file_path.unlink()
@@ -88,18 +87,23 @@ app.include_router(router, prefix="/api")
 
 @app.get("/")
 async def root():
+    model_info = get_model_info()
     return {
         "name": "Stix API",
-        "version": "1.0.0",
+        "version": "2.0.0",
         "status": "running",
-        "model": "BiRefNet"
+        "model": model_info["name"],
+        "resolution": model_info["resolution"],
+        "device": model_info["device"],
     }
 
 
 @app.get("/health")
 async def health_check():
     model = get_model()
+    info = get_model_info()
     return {
         "status": "healthy",
-        "model_loaded": model is not None
+        "model_loaded": model is not None,
+        "model_info": info,
     }

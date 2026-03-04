@@ -1,16 +1,16 @@
 /**
  * Editor Component
  * 
- * Full-featured sticker editor with:
- * - Manual mask editing (erase/restore brushes)
- * - Re-background testing
- * - Border customization
- * - Re-analyze capability
- * - Undo/Redo support
+ * Professional sticker editor with:
+ * - Pixel-accurate mask editing (interpolation + softness)
+ * - Multi-layered canvas (Background, Image, Mask, Preview)
+ * - High-precision Zoom & Pan (Wheel + Space-drag)
+ * - Undo/Redo history
+ * - Border and Test backgrounds
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { Stage, Layer, Image as KonvaImage } from 'react-konva'
+import { Stage, Layer, Image as KonvaImage, Circle, Group } from 'react-konva'
 import useImage from 'use-image'
 import { HexColorPicker } from 'react-colorful'
 import {
@@ -24,18 +24,19 @@ import {
     getJob
 } from '../api'
 
-// View modes for the canvas
+// View modes
 const VIEW_MODES = {
-    FINAL: 'final',   // Show final sticker
-    MASK: 'mask',     // Show mask for editing
-    EDGE: 'edge'      // Show edge overlay
+    FINAL: 'final',     // Result on test background
+    MASK: 'mask',       // Pure black/white mask
+    OVERLAY: 'overlay'  // Image + colored mask overlay
 }
 
 // Brush tools
 const TOOLS = {
     NONE: 'none',
-    ERASE: 'erase',     // Remove background (paint black on mask)
-    RESTORE: 'restore'  // Restore sticker (paint white on mask)
+    ERASE: 'erase',     // Paint black on mask
+    RESTORE: 'restore', // Paint white on mask
+    PAN: 'pan'          // Drag to move
 }
 
 function Editor({ job, onBack, onJobUpdate }) {
@@ -43,41 +44,44 @@ function Editor({ job, onBack, onJobUpdate }) {
     // STATE
     // =========================================================================
 
-    // View
+    // Canvas View State
     const [viewMode, setViewMode] = useState(VIEW_MODES.FINAL)
     const [stageSize, setStageSize] = useState({ width: 800, height: 600 })
+    const [scale, setScale] = useState(1)
+    const [position, setPosition] = useState({ x: 0, y: 0 })
+    const [isSpacePressed, setIsSpacePressed] = useState(false)
 
-    // Tools
+    // Brush Tools State
     const [activeTool, setActiveTool] = useState(TOOLS.NONE)
-    const [brushSize, setBrushSize] = useState(20)
+    const [brushSize, setBrushSize] = useState(30)
+    const [brushSoftness, setBrushSoftness] = useState(0) // 0 to 100
     const [isDrawing, setIsDrawing] = useState(false)
+    const [lastPos, setLastPos] = useState(null)
+    const [cursorPos, setCursorPos] = useState({ x: -100, y: -100 })
 
-    // Mask editing
+    // Mask editing state
     const [maskCanvas, setMaskCanvas] = useState(null)
     const [maskHistory, setMaskHistory] = useState([])
     const [historyIndex, setHistoryIndex] = useState(-1)
     const [isSaving, setIsSaving] = useState(false)
     const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
+    const [maskOpacity, setMaskOpacity] = useState(0.5)
 
-    // Border
+    // Border and UI state
     const [borderEnabled, setBorderEnabled] = useState(false)
     const [borderThickness, setBorderThickness] = useState(10)
     const [borderColor, setBorderColor] = useState('#ffffff')
-    const [hexInput, setHexInput] = useState('#ffffff')
     const [showColorPicker, setShowColorPicker] = useState(false)
     const [isGeneratingBorder, setIsGeneratingBorder] = useState(false)
-
-    // Re-background
     const [backgroundPresets, setBackgroundPresets] = useState([])
-    const [activeBackground, setActiveBackground] = useState('transparent')
+    const [activeBackground, setActiveBackground] = useState('checker')
     const [previewUrl, setPreviewUrl] = useState(null)
-
-    // Re-analyze
     const [isReanalyzing, setIsReanalyzing] = useState(false)
 
     // Refs
     const containerRef = useRef(null)
     const stageRef = useRef(null)
+    const maskLayerRef = useRef(null)
     const borderTimeoutRef = useRef(null)
 
     // =========================================================================
@@ -89,531 +93,444 @@ function Editor({ job, onBack, onJobUpdate }) {
     const borderUrl = getImageUrl(job.paths?.with_border)
     const originalUrl = getImageUrl(job.paths?.original)
 
-    const [transparentImage] = useImage(transparentUrl, 'anonymous')
-    const [maskImage] = useImage(maskUrl, 'anonymous')
-    const [borderImage] = useImage(borderUrl, 'anonymous')
-    const [previewImage] = useImage(previewUrl, 'anonymous')
+    const [transparentImg] = useImage(transparentUrl, 'anonymous')
+    const [maskImg] = useImage(maskUrl, 'anonymous')
+    const [borderImg] = useImage(borderUrl, 'anonymous')
+    const [originalImg] = useImage(originalUrl, 'anonymous')
+    const [previewImg] = useImage(previewUrl, 'anonymous')
 
     // =========================================================================
     // INITIALIZATION
     // =========================================================================
 
-    // Load background presets
     useEffect(() => {
-        getBackgroundPresets()
-            .then(data => setBackgroundPresets(data.presets || []))
-            .catch(console.error)
+        getBackgroundPresets().then(data => setBackgroundPresets(data.presets || []))
+        
+        // Keyboard listeners
+        const handleKeyDown = (e) => {
+            if (e.code === 'Space') setIsSpacePressed(true)
+            if (e.key === '[') setBrushSize(prev => Math.max(5, prev - 5))
+            if (e.key === ']') setBrushSize(prev => Math.min(200, prev + 5))
+            if (e.metaKey || e.ctrlKey) {
+                if (e.key === 'z') {
+                    if (e.shiftKey) handleRedo(); else handleUndo()
+                    e.preventDefault()
+                }
+            }
+        }
+        const handleKeyUp = (e) => {
+            if (e.code === 'Space') setIsSpacePressed(false)
+        }
+        window.addEventListener('keydown', handleKeyDown)
+        window.addEventListener('keyup', handleKeyUp)
+        return () => {
+            window.removeEventListener('keydown', handleKeyDown)
+            window.removeEventListener('keyup', handleKeyUp)
+        }
     }, [])
 
-    // Initialize mask canvas when mask image loads
+    // Initialize mask canvas
     useEffect(() => {
-        if (maskImage && !maskCanvas) {
+        if (maskImg && !maskCanvas) {
             const canvas = document.createElement('canvas')
-            canvas.width = maskImage.width
-            canvas.height = maskImage.height
+            canvas.width = maskImg.width
+            canvas.height = maskImg.height
             const ctx = canvas.getContext('2d')
-            ctx.drawImage(maskImage, 0, 0)
+            ctx.drawImage(maskImg, 0, 0)
             setMaskCanvas(canvas)
-
-            // Initialize history
             setMaskHistory([canvas.toDataURL('image/png')])
             setHistoryIndex(0)
-        }
-    }, [maskImage, maskCanvas])
 
-    // Resize stage to fit container
+            // Initial auto-zoom to fit
+            const padding = 40
+            const availableW = stageSize.width - padding
+            const availableH = stageSize.height - padding
+            const fitScale = Math.min(availableW / maskImg.width, availableH / maskImg.height, 1)
+            setScale(fitScale)
+            setPosition({
+                x: (stageSize.width - maskImg.width * fitScale) / 2,
+                y: (stageSize.height - maskImg.height * fitScale) / 2
+            })
+        }
+    }, [maskImg, maskCanvas, stageSize])
+
+    // Update stage size
     useEffect(() => {
         const updateSize = () => {
             if (containerRef.current) {
                 const rect = containerRef.current.getBoundingClientRect()
-                setStageSize({
-                    width: Math.max(rect.width - 20, 400),
-                    height: Math.max(rect.height - 20, 300)
-                })
+                setStageSize({ width: rect.width, height: rect.height })
             }
         }
-        updateSize()
-        window.addEventListener('resize', updateSize)
+        updateSize(); window.addEventListener('resize', updateSize)
         return () => window.removeEventListener('resize', updateSize)
     }, [])
 
     // =========================================================================
-    // COMPUTED VALUES
+    // ZOOM & PAN
     // =========================================================================
 
-    const getImageDimensions = useCallback(() => {
-        const img = transparentImage || maskImage
-        if (!img) return { x: 0, y: 0, width: 0, height: 0, scale: 1 }
+    const handleWheel = (e) => {
+        e.evt.preventDefault()
+        const stage = stageRef.current
+        const oldScale = scale
+        const pointer = stage.getPointerPosition()
 
-        const padding = 60
-        const maxWidth = stageSize.width - padding * 2
-        const maxHeight = stageSize.height - padding * 2
+        const mousePointTo = {
+            x: (pointer.x - position.x) / oldScale,
+            y: (pointer.y - position.y) / oldScale,
+        }
 
-        const imgScale = Math.min(maxWidth / img.width, maxHeight / img.height, 1)
-        const width = img.width * imgScale
-        const height = img.height * imgScale
-        const x = (stageSize.width - width) / 2
-        const y = (stageSize.height - height) / 2
+        const speed = 1.1
+        const newScale = e.evt.deltaY < 0 ? oldScale * speed : oldScale / speed
+        const clampedScale = Math.max(0.1, Math.min(newScale, 20))
 
-        return { x, y, width, height, scale: imgScale }
-    }, [transparentImage, maskImage, stageSize])
+        setScale(clampedScale)
+        setPosition({
+            x: pointer.x - mousePointTo.x * clampedScale,
+            y: pointer.y - mousePointTo.y * clampedScale,
+        })
+    }
 
-    const dims = getImageDimensions()
-    const canUndo = historyIndex > 0
-    const canRedo = historyIndex < maskHistory.length - 1
+    const handleStageDrag = (e) => {
+        if (isSpacePressed || activeTool === TOOLS.PAN) {
+            setPosition(e.target.position())
+        }
+    }
 
     // =========================================================================
     // BRUSH DRAWING
     // =========================================================================
 
+    const getLocalPointerPos = useCallback(() => {
+        const stage = stageRef.current
+        const pos = stage.getPointerPosition()
+        if (!pos) return null
+        return {
+            x: (pos.x - position.x) / scale,
+            y: (pos.y - position.y) / scale
+        }
+    }, [position, scale])
+
     const handleMouseDown = (e) => {
-        if (activeTool === TOOLS.NONE || !maskCanvas) return
+        if (isSpacePressed || activeTool === TOOLS.NONE || activeTool === TOOLS.PAN) return
         setIsDrawing(true)
-        draw(e)
+        const pos = getLocalPointerPos()
+        setLastPos(pos)
+        draw(pos, pos)
     }
 
     const handleMouseMove = (e) => {
-        if (!isDrawing || activeTool === TOOLS.NONE || !maskCanvas) return
-        draw(e)
+        const pos = getLocalPointerPos()
+        if (pos) setCursorPos(pos)
+
+        if (!isDrawing) return
+        draw(lastPos, pos)
+        setLastPos(pos)
     }
 
     const handleMouseUp = () => {
-        if (isDrawing && maskCanvas) {
+        if (isDrawing) {
             setIsDrawing(false)
-            // Save to history
-            const newData = maskCanvas.toDataURL('image/png')
-            const newHistory = maskHistory.slice(0, historyIndex + 1)
-            newHistory.push(newData)
-            setMaskHistory(newHistory)
-            setHistoryIndex(newHistory.length - 1)
-            setHasUnsavedChanges(true)
+            setLastPos(null)
+            saveToHistory()
         }
     }
 
-    const draw = (e) => {
-        if (!maskCanvas || !stageRef.current) return
-
-        const stage = stageRef.current
-        const pos = stage.getPointerPosition()
-        if (!pos) return
-
-        // Convert screen coords to mask coords
-        const maskX = (pos.x - dims.x) / dims.scale
-        const maskY = (pos.y - dims.y) / dims.scale
-
+    const draw = (start, end) => {
+        if (!maskCanvas || !start || !end) return
         const ctx = maskCanvas.getContext('2d')
-        ctx.beginPath()
-        ctx.arc(maskX, maskY, brushSize / 2, 0, Math.PI * 2)
-        ctx.fillStyle = activeTool === TOOLS.ERASE ? 'black' : 'white'
-        ctx.fill()
+        
+        ctx.lineJoin = 'round'
+        ctx.lineCap = 'round'
+        ctx.lineWidth = brushSize
+        ctx.strokeStyle = activeTool === TOOLS.ERASE ? 'black' : 'white'
+        
+        // Softness implementation using shadow or gradient
+        if (brushSoftness > 0) {
+            ctx.shadowBlur = (brushSize * brushSoftness) / 100
+            ctx.shadowColor = ctx.strokeStyle
+        } else {
+            ctx.shadowBlur = 0
+        }
 
-        // Force re-render by creating new canvas reference
-        setMaskCanvas(prev => {
-            const newCanvas = document.createElement('canvas')
-            newCanvas.width = prev.width
-            newCanvas.height = prev.height
-            newCanvas.getContext('2d').drawImage(prev, 0, 0)
-            return newCanvas
-        })
+        ctx.beginPath()
+        ctx.moveTo(start.x, start.y)
+        ctx.lineTo(end.x, end.y)
+        ctx.stroke()
+
+        // Sync Konva
+        maskLayerRef.current.batchDraw()
+        setHasUnsavedChanges(true)
     }
 
     // =========================================================================
-    // UNDO / REDO
+    // HISTORY & SAVE
     // =========================================================================
 
-    const handleUndo = useCallback(() => {
-        if (!canUndo || !maskCanvas) return
-        const newIndex = historyIndex - 1
-        setHistoryIndex(newIndex)
+    const saveToHistory = () => {
+        const newData = maskCanvas.toDataURL('image/png')
+        const newHistory = maskHistory.slice(0, historyIndex + 1)
+        newHistory.push(newData)
+        if (newHistory.length > 20) newHistory.shift() // Limit history
+        setMaskHistory(newHistory)
+        setHistoryIndex(newHistory.length - 1)
+    }
 
+    const handleUndo = () => {
+        if (historyIndex <= 0) return
+        loadHistory(historyIndex - 1)
+    }
+
+    const handleRedo = () => {
+        if (historyIndex >= maskHistory.length - 1) return
+        loadHistory(historyIndex + 1)
+    }
+
+    const loadHistory = (index) => {
         const img = new Image()
         img.onload = () => {
             const ctx = maskCanvas.getContext('2d')
             ctx.clearRect(0, 0, maskCanvas.width, maskCanvas.height)
             ctx.drawImage(img, 0, 0)
-            setMaskCanvas(c => {
-                const n = document.createElement('canvas')
-                n.width = c.width; n.height = c.height
-                n.getContext('2d').drawImage(c, 0, 0)
-                return n
-            })
+            setHistoryIndex(index)
+            maskLayerRef.current.batchDraw()
         }
-        img.src = maskHistory[newIndex]
-    }, [canUndo, historyIndex, maskHistory, maskCanvas])
+        img.src = maskHistory[index]
+    }
 
-    const handleRedo = useCallback(() => {
-        if (!canRedo || !maskCanvas) return
-        const newIndex = historyIndex + 1
-        setHistoryIndex(newIndex)
-
-        const img = new Image()
-        img.onload = () => {
-            const ctx = maskCanvas.getContext('2d')
-            ctx.clearRect(0, 0, maskCanvas.width, maskCanvas.height)
-            ctx.drawImage(img, 0, 0)
-            setMaskCanvas(c => {
-                const n = document.createElement('canvas')
-                n.width = c.width; n.height = c.height
-                n.getContext('2d').drawImage(c, 0, 0)
-                return n
-            })
-        }
-        img.src = maskHistory[newIndex]
-    }, [canRedo, historyIndex, maskHistory, maskCanvas])
-
-    // =========================================================================
-    // SAVE MASK
-    // =========================================================================
-
-    const handleSaveMask = async () => {
-        if (!maskCanvas) return
+    const handleSave = async () => {
         setIsSaving(true)
         try {
-            const maskData = maskCanvas.toDataURL('image/png')
-            const result = await saveMask(job.id, maskData)
-            if (result.success) {
-                onJobUpdate({ ...job, paths: result.paths })
-                setHasUnsavedChanges(false)
-            }
-        } catch (error) {
-            console.error('Save failed:', error)
-            alert('Failed to save mask')
-        } finally {
-            setIsSaving(false)
-        }
+            const data = maskCanvas.toDataURL('image/png')
+            const res = await saveMask(job.id, data)
+            onJobUpdate({ ...job, paths: res.paths })
+            setHasUnsavedChanges(false)
+        } catch (e) { alert('Save failed') }
+        finally { setIsSaving(false) }
     }
 
     // =========================================================================
-    // RE-ANALYZE
+    // BORDER & BG
     // =========================================================================
 
-    const handleReanalyze = async () => {
-        if (!confirm('This will reprocess the image through AI. Any manual edits will be lost. Continue?')) {
-            return
-        }
-
-        setIsReanalyzing(true)
-        try {
-            await reanalyzeJob(job.id)
-            // Poll for completion
-            const pollForComplete = async () => {
-                const updatedJob = await getJob(job.id)
-                if (updatedJob.status === 'complete') {
-                    onJobUpdate(updatedJob)
-                    setMaskCanvas(null) // Reset to reload new mask
-                    setHasUnsavedChanges(false)
-                    setIsReanalyzing(false)
-                } else if (updatedJob.status === 'error') {
-                    alert('Re-analysis failed: ' + updatedJob.error)
-                    setIsReanalyzing(false)
-                } else {
-                    setTimeout(pollForComplete, 1000)
-                }
-            }
-            pollForComplete()
-        } catch (error) {
-            console.error('Re-analyze failed:', error)
-            alert('Failed to start re-analysis')
-            setIsReanalyzing(false)
-        }
-    }
-
-    // =========================================================================
-    // BORDER GENERATION
-    // =========================================================================
-
-    const handleGenerateBorder = useCallback(async () => {
-        if (!borderEnabled) return
-        setIsGeneratingBorder(true)
-        try {
-            const result = await generateBorder(job.id, borderThickness, borderColor)
-            onJobUpdate({ ...job, paths: { ...job.paths, with_border: result.path } })
-        } catch (error) {
-            console.error('Border generation failed:', error)
-        } finally {
-            setIsGeneratingBorder(false)
-        }
-    }, [job, borderThickness, borderColor, borderEnabled, onJobUpdate])
-
-    // Debounced border generation
     useEffect(() => {
         if (!borderEnabled) return
         if (borderTimeoutRef.current) clearTimeout(borderTimeoutRef.current)
-        borderTimeoutRef.current = setTimeout(handleGenerateBorder, 300)
-        return () => { if (borderTimeoutRef.current) clearTimeout(borderTimeoutRef.current) }
+        borderTimeoutRef.current = setTimeout(async () => {
+            setIsGeneratingBorder(true)
+            const res = await generateBorder(job.id, borderThickness, borderColor)
+            onJobUpdate({ ...job, paths: { ...job.paths, with_border: res.path } })
+            setIsGeneratingBorder(false)
+        }, 300)
     }, [borderThickness, borderColor, borderEnabled])
-
-    // =========================================================================
-    // RE-BACKGROUND
-    // =========================================================================
 
     const handleBackgroundChange = async (preset) => {
         setActiveBackground(preset.id)
-
-        if (preset.id === 'transparent') {
-            setPreviewUrl(null)
-            return
-        }
-
-        try {
-            const result = await generateRebackground(job.id, {
-                type: preset.type,
-                color1: preset.color1,
-                color2: preset.color2
-            })
-            setPreviewUrl(getImageUrl(result.path) + '?t=' + Date.now())
-        } catch (error) {
-            console.error('Background generation failed:', error)
-        }
+        if (preset.id === 'checker') { setPreviewUrl(null); return }
+        const res = await generateRebackground(job.id, {
+            type: preset.type, color1: preset.color1, color2: preset.color2
+        })
+        setPreviewUrl(getImageUrl(res.path) + '?t=' + Date.now())
     }
 
     // =========================================================================
-    // DOWNLOAD
+    // RENDER HELPERS
     // =========================================================================
 
-    const handleDownload = async (withBorder = false) => {
-        try {
-            await downloadImage(job.id, withBorder && borderEnabled)
-        } catch (error) {
-            console.error('Download failed:', error)
-            alert('Download failed')
-        }
+    const getResultImage = () => {
+        if (activeBackground !== 'checker' && previewImg) return previewImg
+        if (borderEnabled && borderImg) return borderImg
+        return transparentImg
     }
 
-    // =========================================================================
-    // HELPERS
-    // =========================================================================
-
-    const handleHexChange = (value) => {
-        setHexInput(value)
-        if (/^#[0-9A-Fa-f]{6}$/.test(value)) {
-            setBorderColor(value)
-        }
-    }
-
-    const getDisplayImage = () => {
-        if (viewMode === VIEW_MODES.MASK) return null
-        if (activeBackground !== 'transparent' && previewImage) return previewImage
-        if (borderEnabled && borderImage) return borderImage
-        return transparentImage
-    }
-
-    const presetColors = ['#ffffff', '#000000', '#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6', '#8b5cf6']
-
-    // =========================================================================
-    // RENDER
-    // =========================================================================
-
-    const isLoading = isGeneratingBorder || isSaving || isReanalyzing
+    const isPanning = isSpacePressed || activeTool === TOOLS.PAN
 
     return (
-        <div className="editor-panel">
-            {/* Canvas Area */}
+        <div className="editor-panel professional">
+            {/* Main Stage */}
             <div className="canvas-container" ref={containerRef}>
-                <div className="canvas-checker" />
-
+                <div className={`canvas-checker ${activeBackground}`} />
+                
                 <Stage
                     ref={stageRef}
                     width={stageSize.width}
                     height={stageSize.height}
+                    scaleX={scale} scaleY={scale}
+                    x={position.x} y={position.y}
+                    onWheel={handleWheel}
+                    draggable={isPanning}
+                    onDragMove={handleStageDrag}
                     onMouseDown={handleMouseDown}
                     onMouseMove={handleMouseMove}
                     onMouseUp={handleMouseUp}
                     onMouseLeave={handleMouseUp}
-                    style={{ cursor: activeTool !== TOOLS.NONE ? 'crosshair' : 'default' }}
+                    style={{ cursor: isPanning ? 'grab' : activeTool !== TOOLS.NONE ? 'none' : 'default' }}
                 >
+                    {/* Layer 1: Original Image */}
                     <Layer>
-                        {/* Main image */}
-                        {viewMode !== VIEW_MODES.MASK && getDisplayImage() && (
-                            <KonvaImage
-                                image={getDisplayImage()}
-                                x={dims.x} y={dims.y}
-                                width={dims.width} height={dims.height}
-                            />
+                        {originalImg && (
+                            <KonvaImage image={originalImg} opacity={viewMode === VIEW_MODES.MASK ? 0 : 1} />
                         )}
+                    </Layer>
 
-                        {/* Mask view */}
-                        {viewMode === VIEW_MODES.MASK && maskCanvas && (
-                            <KonvaImage
-                                image={maskCanvas}
-                                x={dims.x} y={dims.y}
-                                width={dims.width} height={dims.height}
-                            />
+                    {/* Layer 2: Result Layer (overrides original if in FINAL mode) */}
+                    <Layer visible={viewMode === VIEW_MODES.FINAL}>
+                        {getResultImage() && <KonvaImage image={getResultImage()} />}
+                    </Layer>
+
+                    {/* Layer 3: Mask Layer */}
+                    <Layer ref={maskLayerRef} visible={viewMode !== VIEW_MODES.FINAL}>
+                        {maskCanvas && (
+                            <Group opacity={viewMode === VIEW_MODES.OVERLAY ? maskOpacity : 1}>
+                                <KonvaImage 
+                                    image={maskCanvas} 
+                                    filters={viewMode === VIEW_MODES.OVERLAY ? [] : []} // Could add color filter for overlay
+                                />
+                            </Group>
                         )}
+                    </Layer>
 
-                        {/* Edge overlay */}
-                        {viewMode === VIEW_MODES.EDGE && maskImage && (
-                            <KonvaImage
-                                image={maskImage}
-                                x={dims.x} y={dims.y}
-                                width={dims.width} height={dims.height}
-                                opacity={0.4}
+                    {/* Layer 4: UI/Cursor */}
+                    <Layer>
+                        {!isPanning && activeTool !== TOOLS.NONE && (
+                            <Circle 
+                                x={cursorPos.x} y={cursorPos.y}
+                                radius={brushSize / 2}
+                                stroke="white" strokeWidth={2 / scale}
+                                dash={[4 / scale, 4 / scale]}
                             />
                         )}
                     </Layer>
                 </Stage>
 
-                {/* Loading overlay */}
-                {isLoading && (
-                    <div className="canvas-loading">
-                        <div className="spinner" />
-                        <span>
-                            {isReanalyzing ? 'Re-analyzing...' : isSaving ? 'Saving...' : 'Generating...'}
-                        </span>
-                    </div>
-                )}
+                {/* Status Bar */}
+                <div className="stage-status">
+                    <span>{Math.round(scale * 100)}%</span>
+                    <span>{job.edge_confidence} quality</span>
+                </div>
 
-                {/* View mode toggle */}
-                <div className="view-mode-toggle">
-                    <button className={`btn btn-icon ${viewMode === VIEW_MODES.FINAL ? 'active' : ''}`}
-                        onClick={() => setViewMode(VIEW_MODES.FINAL)} title="Final View">🖼️</button>
-                    <button className={`btn btn-icon ${viewMode === VIEW_MODES.EDGE ? 'active' : ''}`}
-                        onClick={() => setViewMode(VIEW_MODES.EDGE)} title="Edge Overlay">✂️</button>
-                    <button className={`btn btn-icon ${viewMode === VIEW_MODES.MASK ? 'active' : ''}`}
-                        onClick={() => setViewMode(VIEW_MODES.MASK)} title="Mask View">🎭</button>
+                {/* Floating View Controls */}
+                <div className="view-mode-toggle professional">
+                    <button className={viewMode === VIEW_MODES.FINAL ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.FINAL)}>Final View</button>
+                    <button className={viewMode === VIEW_MODES.OVERLAY ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.OVERLAY)}>Overlay</button>
+                    <button className={viewMode === VIEW_MODES.MASK ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.MASK)}>Mask Only</button>
                 </div>
             </div>
 
-            {/* Controls Panel */}
+            {/* Sidebar Controls */}
             <div className="controls-panel">
-                {/* Header */}
-                <div className="editor-header">
-                    <button className="btn btn-secondary" onClick={onBack}>← Back</button>
-                    <span className="editor-filename" title={job.filename}>{job.filename}</span>
+                <div className="panel-section">
+                    <button className="btn btn-back" onClick={onBack}>← All Stickers</button>
+                    <h2 className="sticker-name">{job.filename}</h2>
                 </div>
 
-                {/* Quality Info */}
-                {job.edge_confidence && (
-                    <div className={`quality-badge ${job.edge_confidence}`}>
-                        <span className="quality-icon">
-                            {job.edge_confidence === 'high' ? '✅' : job.edge_confidence === 'medium' ? '✓' : '⚠️'}
-                        </span>
-                        <span>Edge Quality: {job.edge_confidence}</span>
-                    </div>
-                )}
-
-                {/* Manual Edit Tools */}
-                <div className="control-section">
-                    <div className="section-header">
-                        <span className="section-title">Manual Edit</span>
-                        {hasUnsavedChanges && <span className="unsaved-badge">Unsaved</span>}
-                    </div>
-
-                    <div className="tool-buttons">
-                        <button className={`btn btn-tool ${activeTool === TOOLS.ERASE ? 'active erase' : ''}`}
-                            onClick={() => setActiveTool(activeTool === TOOLS.ERASE ? TOOLS.NONE : TOOLS.ERASE)}>
-                            🧹 Erase
+                {/* Tool Selection */}
+                <div className="panel-section">
+                    <h3 className="section-title">Edit Mask</h3>
+                    <div className="tool-grid">
+                        <button className={`btn-tool ${activeTool === TOOLS.ERASE ? 'active' : ''}`} onClick={() => setActiveTool(TOOLS.ERASE)}>
+                            <span className="icon">🧹</span> Erase
                         </button>
-                        <button className={`btn btn-tool ${activeTool === TOOLS.RESTORE ? 'active restore' : ''}`}
-                            onClick={() => setActiveTool(activeTool === TOOLS.RESTORE ? TOOLS.NONE : TOOLS.RESTORE)}>
-                            ✨ Restore
+                        <button className={`btn-tool ${activeTool === TOOLS.RESTORE ? 'active' : ''}`} onClick={() => setActiveTool(TOOLS.RESTORE)}>
+                            <span className="icon">✨</span> Restore
                         </button>
                     </div>
 
-                    {activeTool !== TOOLS.NONE && (
-                        <div className="slider-container">
-                            <div className="slider-header">
-                                <span>Brush Size</span>
-                                <span className="slider-value">{brushSize}px</span>
-                            </div>
-                            <input type="range" className="slider" min="5" max="100" value={brushSize}
-                                onChange={(e) => setBrushSize(parseInt(e.target.value))} />
+                    <div className="control-group">
+                        <label>Brush Size: {brushSize}px</label>
+                        <input type="range" min="2" max="200" value={brushSize} onChange={e => setBrushSize(Number(e.target.value))} />
+                    </div>
+
+                    <div className="control-group">
+                        <label>Softness: {brushSoftness}%</label>
+                        <input type="range" min="0" max="100" value={brushSoftness} onChange={e => setBrushSoftness(Number(e.target.value))} />
+                    </div>
+
+                    {viewMode === VIEW_MODES.OVERLAY && (
+                        <div className="control-group">
+                            <label>Mask Opacity: {Math.round(maskOpacity * 100)}%</label>
+                            <input type="range" min="0" max="1" step="0.01" value={maskOpacity} onChange={e => setMaskOpacity(Number(e.target.value))} />
                         </div>
                     )}
 
-                    <div className="button-row">
-                        <button className="btn btn-icon" onClick={handleUndo} disabled={!canUndo} title="Undo">↩️</button>
-                        <button className="btn btn-icon" onClick={handleRedo} disabled={!canRedo} title="Redo">↪️</button>
-                        <button className="btn btn-success flex-1" onClick={handleSaveMask}
-                            disabled={isSaving || !hasUnsavedChanges}>
-                            💾 {isSaving ? 'Saving...' : 'Save Changes'}
+                    <div className="history-actions">
+                        <button className="btn-icon" onClick={handleUndo} disabled={historyIndex <= 0}>↩️ Undo</button>
+                        <button className="btn-icon" onClick={handleRedo} disabled={historyIndex >= maskHistory.length - 1}>↪️ Redo</button>
+                        <button className={`btn-save ${hasUnsavedChanges ? 'primary' : ''}`} onClick={handleSave} disabled={!hasUnsavedChanges || isSaving}>
+                            {isSaving ? 'Saving...' : 'Save Changes'}
                         </button>
                     </div>
                 </div>
 
-                {/* Re-analyze */}
-                <div className="control-section">
-                    <span className="section-title">AI Processing</span>
-                    <button className="btn btn-secondary" onClick={handleReanalyze} disabled={isReanalyzing}>
-                        🔄 {isReanalyzing ? 'Processing...' : 'Re-Analyze with AI'}
-                    </button>
-                    <p className="hint-text">Reprocess the image if the initial extraction wasn't perfect</p>
+                {/* Border & Backgrounds */}
+                <div className="panel-section">
+                    <div className="flex-row">
+                        <h3 className="section-title">Border</h3>
+                        <div className={`toggle ${borderEnabled ? 'on' : ''}`} onClick={() => setBorderEnabled(!borderEnabled)} />
+                    </div>
+                    {borderEnabled && (
+                        <div className="border-controls">
+                            <input type="range" min="1" max="50" value={borderThickness} onChange={e => setBorderThickness(Number(e.target.value))} />
+                            <div className="color-row">
+                                <div className="color-swatch" style={{ background: borderColor }} onClick={() => setShowColorPicker(!showColorPicker)} />
+                                <input type="text" value={borderColor} onChange={e => setBorderColor(e.target.value)} />
+                            </div>
+                            {showColorPicker && <div className="absolute-picker"><HexColorPicker color={borderColor} onChange={setBorderColor} /></div>}
+                        </div>
+                    )}
                 </div>
 
-                {/* Test Backgrounds */}
-                <div className="control-section">
-                    <span className="section-title">Test Backgrounds</span>
-                    <div className="background-presets">
-                        {backgroundPresets.map(preset => (
-                            <button key={preset.id}
-                                className={`btn btn-preset ${activeBackground === preset.id ? 'active' : ''}`}
-                                style={{ backgroundColor: preset.color1 || '#888' }}
-                                onClick={() => handleBackgroundChange(preset)}
-                                title={preset.name}>
-                                {preset.name}
-                            </button>
+                <div className="panel-section">
+                    <h3 className="section-title">Background Test</h3>
+                    <div className="bg-grid">
+                        {backgroundPresets.map(p => (
+                            <button key={p.id} className={`bg-swatch ${activeBackground === p.id ? 'active' : ''}`} 
+                                style={{ background: p.color1 || '#ccc' }}
+                                onClick={() => handleBackgroundChange(p)} />
                         ))}
                     </div>
                 </div>
 
-                {/* Border */}
-                <div className="control-section">
-                    <span className="section-title">Border</span>
-                    <div className="toggle">
-                        <span>Add Border</span>
-                        <div className={`toggle-switch ${borderEnabled ? 'active' : ''}`}
-                            onClick={() => setBorderEnabled(!borderEnabled)} />
-                    </div>
-
-                    {borderEnabled && (
-                        <>
-                            <div className="slider-container">
-                                <div className="slider-header">
-                                    <span>Thickness</span>
-                                    <span className="slider-value">{borderThickness}px</span>
-                                </div>
-                                <input type="range" className="slider" min="1" max="50" value={borderThickness}
-                                    onChange={(e) => setBorderThickness(parseInt(e.target.value))} />
-                            </div>
-
-                            <div className="color-picker-container">
-                                <span className="color-label">Color</span>
-                                <div className="color-preview">
-                                    <div className="color-swatch" style={{ backgroundColor: borderColor }}
-                                        onClick={() => setShowColorPicker(!showColorPicker)} />
-                                    <input type="text" className="hex-input" value={hexInput}
-                                        onChange={(e) => handleHexChange(e.target.value)} placeholder="#FFFFFF" />
-                                </div>
-                                {showColorPicker && (
-                                    <div className="color-picker-dropdown">
-                                        <HexColorPicker color={borderColor} onChange={(c) => { setBorderColor(c); setHexInput(c); }} />
-                                        <div className="preset-colors">
-                                            {presetColors.map(color => (
-                                                <div key={color} className={`preset-swatch ${borderColor === color ? 'active' : ''}`}
-                                                    style={{ backgroundColor: color }}
-                                                    onClick={() => { setBorderColor(color); setHexInput(color); }} />
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </>
-                    )}
-                </div>
-
-                {/* Export */}
-                <div className="control-section export-section">
-                    <span className="section-title">Export</span>
-                    <button className="btn btn-primary btn-large" onClick={() => handleDownload(true)}>
-                        📥 Download PNG
+                <div className="panel-section export">
+                    <button className="btn-primary btn-large" onClick={() => downloadImage(job.id, borderEnabled)}>
+                        Download Sticker
                     </button>
-                    {borderEnabled && (
-                        <button className="btn btn-secondary" onClick={() => handleDownload(false)}>
-                            Download without border
-                        </button>
-                    )}
                 </div>
             </div>
+
+            <style jsx>{`
+                .professional {
+                    --bg-dark: #1e1e1e;
+                    --panel-bg: #2d2d2d;
+                    --accent: #3b82f6;
+                    --text: #e5e5e5;
+                    --border: #404040;
+                }
+                .editor-panel { display: flex; height: 100vh; background: var(--bg-dark); color: var(--text); overflow: hidden; }
+                .canvas-container { flex: 1; position: relative; cursor: crosshair; }
+                .canvas-checker { position: absolute; inset: 0; z-index: 0; }
+                .canvas-checker.checker { background-image: conic-gradient(#333 90deg, #444 90deg 180deg, #333 180deg 270deg, #444 270deg); background-size: 40px 40px; }
+                .controls-panel { width: 320px; background: var(--panel-bg); border-left: 1px solid var(--border); padding: 20px; overflow-y: auto; }
+                .panel-section { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+                .section-title { font-size: 14px; text-transform: uppercase; color: #888; margin-bottom: 12px; }
+                .tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
+                .btn-tool { background: #333; border: 1px solid var(--border); padding: 12px; border-radius: 8px; color: white; cursor: pointer; }
+                .btn-tool.active { background: var(--accent); border-color: var(--accent); }
+                .control-group { margin-bottom: 15px; }
+                .control-group label { display: block; font-size: 13px; margin-bottom: 8px; }
+                input[type="range"] { width: 100%; height: 4px; background: #444; border-radius: 2px; appearance: none; }
+                .history-actions { display: flex; gap: 8px; margin-top: 20px; }
+                .btn-save { flex: 1; padding: 10px; border-radius: 6px; border: none; background: #444; color: white; cursor: pointer; }
+                .btn-save.primary { background: var(--accent); }
+                .view-mode-toggle { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; padding: 4px; border-radius: 10px; display: flex; gap: 2px; }
+                .view-mode-toggle button { background: none; border: none; color: #888; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
+                .view-mode-toggle button.active { background: #444; color: white; }
+                .bg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+                .bg-swatch { aspect-ratio: 1; border-radius: 4px; border: 2px solid transparent; cursor: pointer; }
+                .bg-swatch.active { border-color: var(--accent); }
+                .stage-status { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; font-size: 12px; display: flex; gap: 10px; }
+            `}</style>
         </div>
     )
 }
