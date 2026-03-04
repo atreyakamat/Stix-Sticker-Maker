@@ -414,17 +414,18 @@ function Editor({ job, onBack, onJobUpdate }) {
                     </Layer>
                 </Stage>
 
-                {/* Status Bar */}
-                <div className="stage-status">
-                    <span>{Math.round(scale * 100)}%</span>
-                    <span>{job.edge_confidence} quality</span>
-                </div>
-
-                {/* Floating View Controls */}
-                <div className="view-mode-toggle professional">
-                    <button className={viewMode === VIEW_MODES.FINAL ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.FINAL)}>Final View</button>
-                    <button className={viewMode === VIEW_MODES.OVERLAY ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.OVERLAY)}>Overlay</button>
-                    <button className={viewMode === VIEW_MODES.MASK ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.MASK)}>Mask Only</button>
+                {/* Floating Controls Panel (Right Side) */}
+                <div className="floating-controls-right">
+                    <div className="status-group">
+                        <span className="zoom-value">{Math.round(scale * 100)}%</span>
+                        <span className={`quality-badge ${job.edge_confidence}`}>{job.edge_confidence} quality</span>
+                    </div>
+                    
+                    <div className="view-mode-group">
+                        <button className={viewMode === VIEW_MODES.FINAL ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.FINAL)}>Final View</button>
+                        <button className={viewMode === VIEW_MODES.OVERLAY ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.OVERLAY)}>Overlay</button>
+                        <button className={viewMode === VIEW_MODES.MASK ? 'active' : ''} onClick={() => setViewMode(VIEW_MODES.MASK)}>Mask Only</button>
+                    </div>
                 </div>
             </div>
 
@@ -541,7 +542,7 @@ function Editor({ job, onBack, onJobUpdate }) {
                     --warning: #f59e0b;
                     --error: #ef4444;
                 }
-                .editor-panel { display: flex; height: 100vh; background: var(--bg-dark); color: var(--text); overflow: hidden; }
+                .editor-panel { display: flex; height: 100%; background: var(--bg-dark); color: var(--text); overflow: hidden; }
                 .canvas-container { flex: 1; position: relative; cursor: crosshair; min-width: 0; }
                 .canvas-checker { position: absolute; inset: 0; z-index: 0; }
                 .canvas-checker.checker { background-image: conic-gradient(#333 90deg, #444 90deg 180deg, #333 180deg 270deg, #444 270deg); background-size: 40px 40px; }
@@ -558,34 +559,62 @@ function Editor({ job, onBack, onJobUpdate }) {
                 .history-actions { display: flex; gap: 8px; margin-top: 20px; }
                 .btn-save { flex: 1; padding: 10px; border-radius: 6px; border: none; background: #444; color: white; cursor: pointer; }
                 .btn-save.primary { background: var(--accent); }
-                .view-mode-toggle { 
-                    position: absolute; 
-                    bottom: 20px; 
-                    left: 50%; 
-                    transform: translateX(-50%); 
-                    background: rgba(45, 45, 45, 0.9); 
-                    padding: 4px; 
-                    border-radius: 12px; 
-                    display: flex; 
-                    gap: 2px; 
-                    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
-                    backdrop-filter: blur(10px);
-                    max-width: 90vw;
-                    overflow-x: auto;
+                
+                .floating-controls-right {
+                    position: absolute;
+                    top: 20px;
+                    right: 20px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 12px;
+                    z-index: 10;
                 }
-                .view-mode-toggle::-webkit-scrollbar { display: none; }
-                .view-mode-toggle button { 
-                    background: none; 
-                    border: none; 
-                    color: #aaa; 
-                    padding: 8px 16px; 
-                    border-radius: 8px; 
-                    cursor: pointer; 
-                    white-space: nowrap;
-                    font-size: 13px;
+                .status-group {
+                    background: rgba(0, 0, 0, 0.7);
+                    padding: 8px 12px;
+                    border-radius: 8px;
+                    display: flex;
+                    align-items: center;
+                    gap: 12px;
+                    font-size: 12px;
+                    backdrop-filter: blur(4px);
+                    border: 1px solid var(--border);
+                }
+                .zoom-value { font-weight: 600; color: var(--accent); }
+                .quality-badge { padding: 2px 6px; border-radius: 4px; text-transform: uppercase; font-weight: 700; font-size: 10px; }
+                .quality-badge.high { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+                .quality-badge.medium { background: rgba(245, 158, 11, 0.2); color: #f59e0b; }
+                .quality-badge.low { background: rgba(239, 68, 68, 0.2); color: #ef4444; }
+
+                .view-mode-group {
+                    background: rgba(0, 0, 0, 0.7);
+                    padding: 4px;
+                    border-radius: 10px;
+                    display: flex;
+                    flex-direction: column;
+                    gap: 4px;
+                    backdrop-filter: blur(4px);
+                    border: 1px solid var(--border);
+                }
+                .view-mode-group button {
+                    background: none;
+                    border: none;
+                    color: #aaa;
+                    padding: 8px 12px;
+                    border-radius: 6px;
+                    cursor: pointer;
+                    font-size: 12px;
+                    text-align: left;
                     transition: all 0.2s;
                 }
-                .view-mode-toggle button.active { background: var(--accent); color: white; }
+                .view-mode-group button.active {
+                    background: var(--accent);
+                    color: white;
+                }
+                .view-mode-group button:hover:not(.active) {
+                    background: rgba(255, 255, 255, 0.1);
+                    color: white;
+                }
                 
                 .review-alert { background: rgba(245, 158, 11, 0.05); margin: -20px -20px 24px -20px; padding: 20px; border-bottom: 1px solid rgba(245, 158, 11, 0.2); }
                 .review-list { list-style: none; padding: 0; margin: 0; }
@@ -608,7 +637,7 @@ function Editor({ job, onBack, onJobUpdate }) {
                 .bg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
                 .bg-swatch { aspect-ratio: 1; border-radius: 4px; border: 2px solid transparent; cursor: pointer; }
                 .bg-swatch.active { border-color: var(--accent); }
-                .stage-status { position: absolute; top: 20px; left: 20px; background: rgba(0,0,0,0.5); padding: 5px 10px; border-radius: 5px; font-size: 12px; display: flex; gap: 10px; }
+                .stage-status { display: none; }
             `}</style>
         </div>
     )

@@ -147,7 +147,7 @@ function App() {
       </header>
 
       {/* Main Content */}
-      <main className="main">
+      <main className={`main ${view === VIEWS.EDITOR ? 'editor-view' : ''}`}>
         {view === VIEWS.UPLOAD && (
           <UploadZone
             onUpload={handleUpload}
