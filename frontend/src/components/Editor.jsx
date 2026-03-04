@@ -105,7 +105,7 @@ function Editor({ job, onBack, onJobUpdate }) {
 
     useEffect(() => {
         getBackgroundPresets().then(data => setBackgroundPresets(data.presets || []))
-        
+
         // Keyboard listeners
         const handleKeyDown = (e) => {
             if (e.code === 'Space') setIsSpacePressed(true)
@@ -240,12 +240,12 @@ function Editor({ job, onBack, onJobUpdate }) {
     const draw = (start, end) => {
         if (!maskCanvas || !start || !end) return
         const ctx = maskCanvas.getContext('2d')
-        
+
         ctx.lineJoin = 'round'
         ctx.lineCap = 'round'
         ctx.lineWidth = brushSize
         ctx.strokeStyle = activeTool === TOOLS.ERASE ? 'black' : 'white'
-        
+
         // Softness implementation using shadow or gradient
         if (brushSoftness > 0) {
             ctx.shadowBlur = (brushSize * brushSoftness) / 100
@@ -361,7 +361,7 @@ function Editor({ job, onBack, onJobUpdate }) {
             {/* Main Stage */}
             <div className="canvas-container" ref={containerRef}>
                 <div className={`canvas-checker ${activeBackground}`} />
-                
+
                 <Stage
                     ref={stageRef}
                     width={stageSize.width}
@@ -393,8 +393,8 @@ function Editor({ job, onBack, onJobUpdate }) {
                     <Layer ref={maskLayerRef} visible={viewMode !== VIEW_MODES.FINAL}>
                         {maskCanvas && (
                             <Group opacity={viewMode === VIEW_MODES.OVERLAY ? maskOpacity : 1}>
-                                <KonvaImage 
-                                    image={maskCanvas} 
+                                <KonvaImage
+                                    image={maskCanvas}
                                     filters={viewMode === VIEW_MODES.OVERLAY ? [] : []} // Could add color filter for overlay
                                 />
                             </Group>
@@ -404,7 +404,7 @@ function Editor({ job, onBack, onJobUpdate }) {
                     {/* Layer 4: UI/Cursor */}
                     <Layer>
                         {!isPanning && activeTool !== TOOLS.NONE && (
-                            <Circle 
+                            <Circle
                                 x={cursorPos.x} y={cursorPos.y}
                                 radius={brushSize / 2}
                                 stroke="white" strokeWidth={2 / scale}
@@ -517,7 +517,7 @@ function Editor({ job, onBack, onJobUpdate }) {
                     <h3 className="section-title">Background Test</h3>
                     <div className="bg-grid">
                         {backgroundPresets.map(p => (
-                            <button key={p.id} className={`bg-swatch ${activeBackground === p.id ? 'active' : ''}`} 
+                            <button key={p.id} className={`bg-swatch ${activeBackground === p.id ? 'active' : ''}`}
                                 style={{ background: p.color1 || '#ccc' }}
                                 onClick={() => handleBackgroundChange(p)} />
                         ))}
