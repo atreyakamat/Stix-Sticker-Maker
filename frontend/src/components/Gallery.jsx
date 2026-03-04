@@ -8,25 +8,47 @@
 import { useState } from 'react'
 import { getImageUrl, exportBatch } from '../api'
 
-function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
+function Gallery({ jobs, onSelect, onUploadMore }) {
     const [isExporting, setIsExporting] = useState(false)
+    const [selectedJobIds, setSelectedJobIds] = useState([])
 
     const completedJobs = jobs.filter(j => j.status === 'complete')
     const processingJobs = jobs.filter(j => j.status === 'processing' || j.status === 'pending')
 
-    // Handle batch export (download all as ZIP)
-    const handleExportAll = async () => {
-        if (completedJobs.length === 0) return
+    // Handle batch export (download selected or all if none selected)
+    const handleExport = async () => {
+        const idsToExport = selectedJobIds.length > 0 
+            ? selectedJobIds 
+            : completedJobs.map(j => j.id)
+
+        if (idsToExport.length === 0) return
 
         setIsExporting(true)
         try {
-            await exportBatch(completedJobs.map(j => j.id), true)
+            await exportBatch(idsToExport, true)
         } catch (error) {
             console.error('Export failed:', error)
             alert('Export failed. Please try again.')
         } finally {
             setIsExporting(false)
         }
+    }
+
+    const toggleSelection = (jobId, e) => {
+        e.stopPropagation() // Don't trigger the onSelect (editor)
+        setSelectedJobIds(prev => 
+            prev.includes(jobId) 
+                ? prev.filter(id => id !== jobId) 
+                : [...prev, jobId]
+        )
+    }
+
+    const selectAll = () => {
+        setSelectedJobIds(completedJobs.map(j => j.id))
+    }
+
+    const clearSelection = () => {
+        setSelectedJobIds([])
     }
 
     return (
@@ -41,6 +63,17 @@ function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
                     </span>
                 </div>
                 <div className="gallery-actions">
+                    {selectedJobIds.length > 0 ? (
+                        <button className="btn btn-text" onClick={clearSelection}>
+                            Clear Selection ({selectedJobIds.length})
+                        </button>
+                    ) : (
+                        completedJobs.length > 0 && (
+                            <button className="btn btn-text" onClick={selectAll}>
+                                Select All
+                            </button>
+                        )
+                    )}
                     <button className="btn btn-secondary" onClick={onUploadMore}>
                         + Add More
                     </button>
@@ -77,8 +110,9 @@ function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
                     <GalleryItem
                         key={job.id}
                         job={job}
-                        isSelected={selectedJob?.id === job.id}
+                        isSelected={selectedJobIds.includes(job.id)}
                         onClick={() => onSelect(job)}
+                        onToggleSelect={(e) => toggleSelection(job.id, e)}
                     />
                 ))}
             </div>
@@ -87,8 +121,8 @@ function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
             {completedJobs.length > 0 && (
                 <div className="gallery-footer">
                     <button
-                        className="btn btn-primary btn-large"
-                        onClick={handleExportAll}
+                        className={`btn btn-primary btn-large ${selectedJobIds.length > 0 ? 'pulse' : ''}`}
+                        onClick={handleExport}
                         disabled={isExporting}
                     >
                         {isExporting ? (
@@ -98,7 +132,9 @@ function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
                             </>
                         ) : (
                             <>
-                                📦 Download All as ZIP ({completedJobs.length} stickers)
+                                📦 {selectedJobIds.length > 0 
+                                    ? `Download Selected (${selectedJobIds.length})` 
+                                    : `Download All as ZIP (${completedJobs.length})`}
                             </>
                         )}
                     </button>
@@ -111,7 +147,7 @@ function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
 /**
  * Individual gallery item
  */
-function GalleryItem({ job, isSelected, onClick }) {
+function GalleryItem({ job, isSelected, onClick, onToggleSelect }) {
     const imageUrl = job.status === 'complete'
         ? getImageUrl(job.paths?.transparent)
         : null
@@ -137,8 +173,20 @@ function GalleryItem({ job, isSelected, onClick }) {
         <div
             className={`gallery-item ${isSelected ? 'selected' : ''} ${job.needs_review ? 'needs-review' : ''} ${job.status}`}
             onClick={onClick}
-            title={job.filename}
+            title={job.needs_review ? `Needs Review: \n${(job.review_reasons || []).join('\n')}` : job.filename}
         >
+            {/* Selection Checkbox */}
+            {job.status === 'complete' && (
+                <div 
+                    className={`item-selection-overlay ${isSelected ? 'active' : ''}`}
+                    onClick={onToggleSelect}
+                >
+                    <div className="checkbox">
+                        {isSelected && '✓'}
+                    </div>
+                </div>
+            )}
+
             {/* Needs Review Badge */}
             {job.needs_review && <div className="review-badge">Review</div>}
 

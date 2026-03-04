@@ -31,6 +31,7 @@ class Job:
     # Validation metadata
     edge_confidence: Optional[str] = None
     warnings: List[str] = field(default_factory=list)
+    review_reasons: List[str] = field(default_factory=list)
     needs_review: bool = False
     tier: str = "balanced"
 

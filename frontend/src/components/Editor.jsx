@@ -310,6 +310,16 @@ function Editor({ job, onBack, onJobUpdate }) {
         finally { setIsSaving(false) }
     }
 
+    const handleReanalyze = async () => {
+        setIsReanalyzing(true)
+        try {
+            await reanalyzeJob(job.id)
+            alert('Reprocessing started. Returning to gallery.')
+            onBack() 
+        } catch (e) { alert('Reprocessing failed') }
+        finally { setIsReanalyzing(false) }
+    }
+
     // =========================================================================
     // BORDER & BG
     // =========================================================================
@@ -425,6 +435,28 @@ function Editor({ job, onBack, onJobUpdate }) {
                     <h2 className="sticker-name">{job.filename}</h2>
                 </div>
 
+                {/* Review Section */}
+                {job.needs_review && (
+                    <div className="panel-section review-alert">
+                        <div className="flex-row">
+                            <h3 className="section-title warning">Needs Review</h3>
+                            <button 
+                                className={`btn-reprocess ${isReanalyzing ? 'loading' : ''}`} 
+                                onClick={handleReanalyze}
+                                disabled={isReanalyzing}
+                                title="Run AI engine again to try and fix issues"
+                            >
+                                {isReanalyzing ? '...' : '🔄 AI Reprocess'}
+                            </button>
+                        </div>
+                        <ul className="review-list">
+                            {(job.review_reasons || []).map((reason, i) => (
+                                <li key={i} className="review-item">{reason}</li>
+                            ))}
+                        </ul>
+                    </div>
+                )}
+
                 {/* Tool Selection */}
                 <div className="panel-section">
                     <h3 className="section-title">Edit Mask</h3>
@@ -506,14 +538,17 @@ function Editor({ job, onBack, onJobUpdate }) {
                     --accent: #3b82f6;
                     --text: #e5e5e5;
                     --border: #404040;
+                    --warning: #f59e0b;
+                    --error: #ef4444;
                 }
                 .editor-panel { display: flex; height: 100vh; background: var(--bg-dark); color: var(--text); overflow: hidden; }
-                .canvas-container { flex: 1; position: relative; cursor: crosshair; }
+                .canvas-container { flex: 1; position: relative; cursor: crosshair; min-width: 0; }
                 .canvas-checker { position: absolute; inset: 0; z-index: 0; }
                 .canvas-checker.checker { background-image: conic-gradient(#333 90deg, #444 90deg 180deg, #333 180deg 270deg, #444 270deg); background-size: 40px 40px; }
-                .controls-panel { width: 320px; background: var(--panel-bg); border-left: 1px solid var(--border); padding: 20px; overflow-y: auto; }
+                .controls-panel { width: 320px; min-width: 320px; background: var(--panel-bg); border-left: 1px solid var(--border); padding: 20px; overflow-y: auto; }
                 .panel-section { margin-bottom: 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
                 .section-title { font-size: 14px; text-transform: uppercase; color: #888; margin-bottom: 12px; }
+                .section-title.warning { color: var(--warning); }
                 .tool-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 20px; }
                 .btn-tool { background: #333; border: 1px solid var(--border); padding: 12px; border-radius: 8px; color: white; cursor: pointer; }
                 .btn-tool.active { background: var(--accent); border-color: var(--accent); }
@@ -523,9 +558,53 @@ function Editor({ job, onBack, onJobUpdate }) {
                 .history-actions { display: flex; gap: 8px; margin-top: 20px; }
                 .btn-save { flex: 1; padding: 10px; border-radius: 6px; border: none; background: #444; color: white; cursor: pointer; }
                 .btn-save.primary { background: var(--accent); }
-                .view-mode-toggle { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); background: #333; padding: 4px; border-radius: 10px; display: flex; gap: 2px; }
-                .view-mode-toggle button { background: none; border: none; color: #888; padding: 8px 16px; border-radius: 8px; cursor: pointer; }
-                .view-mode-toggle button.active { background: #444; color: white; }
+                .view-mode-toggle { 
+                    position: absolute; 
+                    bottom: 20px; 
+                    left: 50%; 
+                    transform: translateX(-50%); 
+                    background: rgba(45, 45, 45, 0.9); 
+                    padding: 4px; 
+                    border-radius: 12px; 
+                    display: flex; 
+                    gap: 2px; 
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+                    backdrop-filter: blur(10px);
+                    max-width: 90vw;
+                    overflow-x: auto;
+                }
+                .view-mode-toggle::-webkit-scrollbar { display: none; }
+                .view-mode-toggle button { 
+                    background: none; 
+                    border: none; 
+                    color: #aaa; 
+                    padding: 8px 16px; 
+                    border-radius: 8px; 
+                    cursor: pointer; 
+                    white-space: nowrap;
+                    font-size: 13px;
+                    transition: all 0.2s;
+                }
+                .view-mode-toggle button.active { background: var(--accent); color: white; }
+                
+                .review-alert { background: rgba(245, 158, 11, 0.05); margin: -20px -20px 24px -20px; padding: 20px; border-bottom: 1px solid rgba(245, 158, 11, 0.2); }
+                .review-list { list-style: none; padding: 0; margin: 0; }
+                .review-item { font-size: 12px; color: #ccc; padding: 4px 0 4px 20px; position: relative; }
+                .review-item::before { content: '•'; position: absolute; left: 5px; color: var(--warning); }
+                .btn-reprocess { 
+                    background: rgba(245, 158, 11, 0.1); 
+                    border: 1px solid var(--warning); 
+                    color: var(--warning); 
+                    padding: 4px 8px; 
+                    border-radius: 4px; 
+                    font-size: 11px; 
+                    cursor: pointer;
+                    transition: all 0.2s;
+                }
+                .btn-reprocess:hover { background: var(--warning); color: black; }
+                .btn-reprocess.loading { opacity: 0.5; cursor: wait; }
+
+                .flex-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
                 .bg-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
                 .bg-swatch { aspect-ratio: 1; border-radius: 4px; border: 2px solid transparent; cursor: pointer; }
                 .bg-swatch.active { border-color: var(--accent); }

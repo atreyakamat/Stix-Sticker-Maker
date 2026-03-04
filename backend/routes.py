@@ -36,6 +36,7 @@ class JobResponse(BaseModel):
     # Validation metadata
     edge_confidence: Optional[str] = None
     warnings: List[str] = []
+    review_reasons: List[str] = []
     needs_review: bool = False
 
 
@@ -79,11 +80,18 @@ def process_image_task(job_id: str, image_path: Path, refine: bool = False):
         if job:
             job.edge_confidence = result.edge_confidence.value
             job.warnings = result.warnings
-            job.needs_review = (
-                result.edge_confidence.value in ['low', 'failed'] or
-                not result.contour_closed or
-                result.ai_escaped_contour
-            )
+            
+            # Populate specific review reasons
+            reasons = []
+            if result.edge_confidence.value in ['low', 'failed']:
+                reasons.append(f"Weak edge detection ({result.edge_confidence.value})")
+            if not result.contour_closed:
+                reasons.append("Open contour: Subject might be cut off at image boundary")
+            if result.ai_escaped_contour:
+                reasons.append("AI leak: Segmentation expanded outside original boundary")
+            
+            job.review_reasons = reasons
+            job.needs_review = len(reasons) > 0
         
         job_manager.set_paths(job_id, url_paths)
         job_manager.update_status(job_id, JobStatus.COMPLETE, 100)
@@ -170,6 +178,7 @@ async def get_job_status(job_id: str):
         paths=job.paths,
         edge_confidence=getattr(job, 'edge_confidence', None),
         warnings=getattr(job, 'warnings', []),
+        review_reasons=getattr(job, 'review_reasons', []),
         needs_review=getattr(job, 'needs_review', False)
     )
 
@@ -188,6 +197,7 @@ async def get_all_jobs():
             paths=job.paths,
             edge_confidence=getattr(job, 'edge_confidence', None),
             warnings=getattr(job, 'warnings', []),
+            review_reasons=getattr(job, 'review_reasons', []),
             needs_review=getattr(job, 'needs_review', False)
         )
         for job in jobs
@@ -372,6 +382,7 @@ async def reanalyze_job(
     job_manager.update_status(job_id, JobStatus.PENDING, 0)
     job.paths = {}
     job.warnings = []
+    job.review_reasons = []
     job.edge_confidence = None
     job.needs_review = False
     
@@ -626,6 +637,7 @@ async def get_editor_data(job_id: str):
         "dimensions": None,
         "edge_confidence": getattr(job, "edge_confidence", None),
         "warnings": getattr(job, "warnings", []),
+        "review_reasons": getattr(job, "review_reasons", []),
         "needs_review": getattr(job, "needs_review", False),
     }
 
