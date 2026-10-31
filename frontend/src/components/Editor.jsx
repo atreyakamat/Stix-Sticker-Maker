@@ -39,10 +39,11 @@ const TOOLS = {
     PAN: 'pan'          // Drag to move
 }
 
-function Editor({ job, onBack, onJobUpdate }) {
+function Editor({ job, onBack, onJobUpdate, onOpenAnalysis }) {
     // =========================================================================
     // STATE
     // =========================================================================
+
 
     // Canvas View State
     const [viewMode, setViewMode] = useState(VIEW_MODES.FINAL)
@@ -419,6 +420,13 @@ function Editor({ job, onBack, onJobUpdate }) {
                     <div className="status-group">
                         <span className="zoom-value">{Math.round(scale * 100)}%</span>
                         <span className={`quality-badge ${job.edge_confidence}`}>{job.edge_confidence} quality</span>
+                        <button
+                            className="btn-analyze-floating"
+                            onClick={() => onOpenAnalysis && onOpenAnalysis(job)}
+                            title="Open Metrology & Picture Analysis"
+                        >
+                            📊 Analyze
+                        </button>
                     </div>
                     
                     <div className="view-mode-group">
@@ -432,9 +440,18 @@ function Editor({ job, onBack, onJobUpdate }) {
             {/* Sidebar Controls */}
             <div className="controls-panel">
                 <div className="panel-section">
-                    <button className="btn btn-back" onClick={onBack}>← All Stickers</button>
+                    <div className="flex-row">
+                        <button className="btn btn-back" onClick={onBack}>← All Stickers</button>
+                        <button
+                            className="btn-analyze-sidebar"
+                            onClick={() => onOpenAnalysis && onOpenAnalysis(job)}
+                        >
+                            📊 Specs &amp; Analysis
+                        </button>
+                    </div>
                     <h2 className="sticker-name">{job.filename}</h2>
                 </div>
+
 
                 {/* Review Section */}
                 {job.needs_review && (

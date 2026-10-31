@@ -10,7 +10,8 @@ import './index.css'
 import UploadZone from './components/UploadZone'
 import Gallery from './components/Gallery'
 import Editor from './components/Editor'
-import { uploadImages, getAllJobs } from './api'
+import ImageAnalysisModal from './components/ImageAnalysisModal'
+import { uploadImages, getAllJobs, generateBorder } from './api'
 
 // View states
 const VIEWS = {
@@ -23,8 +24,10 @@ function App() {
   // State
   const [jobs, setJobs] = useState([])
   const [selectedJob, setSelectedJob] = useState(null)
+  const [analysisJobModal, setAnalysisJobModal] = useState(null)
   const [view, setView] = useState(VIEWS.UPLOAD)
   const [isUploading, setIsUploading] = useState(false)
+
 
   // =========================================================================
   // JOB POLLING
@@ -161,6 +164,7 @@ function App() {
             selectedJob={selectedJob}
             onSelect={handleSelectJob}
             onUploadMore={() => setView(VIEWS.UPLOAD)}
+            onAnalyze={(job) => setAnalysisJobModal(job)}
           />
         )}
 
@@ -169,9 +173,30 @@ function App() {
             job={selectedJob}
             onBack={handleBack}
             onJobUpdate={handleJobUpdate}
+            onOpenAnalysis={(job) => setAnalysisJobModal(job)}
           />
         )}
       </main>
+
+      {/* Picture Analysis Modal */}
+      {analysisJobModal && (
+        <ImageAnalysisModal
+          job={analysisJobModal}
+          onClose={() => setAnalysisJobModal(null)}
+          onApplyRecommendedBorder={async (borderPx) => {
+            try {
+              const res = await generateBorder(analysisJobModal.id, borderPx, '#ffffff')
+              const updated = {
+                ...analysisJobModal,
+                paths: { ...analysisJobModal.paths, with_border: res.path }
+              }
+              handleJobUpdate(updated)
+            } catch (err) {
+              console.error('Failed to apply border:', err)
+            }
+          }}
+        />
+      )}
 
       {/* Footer */}
       <footer className="footer">
@@ -180,6 +205,7 @@ function App() {
         <span>Professional Sticker Studio</span>
       </footer>
     </div>
+
   )
 }
 

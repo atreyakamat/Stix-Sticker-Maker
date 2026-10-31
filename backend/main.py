@@ -4,9 +4,22 @@ Sticker Background Removal & Generator Platform
 """
 
 import os
+import sys
 import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
+
+# Ensure project venv site-packages is on sys.path if run from an external python environment
+backend_dir = Path(__file__).resolve().parent
+venv_site_pkgs = backend_dir / "venv" / "Lib" / "site-packages"
+if venv_site_pkgs.exists() and str(venv_site_pkgs) not in sys.path:
+    sys.path.insert(0, str(venv_site_pkgs))
+
+if hasattr(sys.stdout, 'reconfigure'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -14,8 +27,8 @@ from fastapi.staticfiles import StaticFiles
 
 from routes import router
 from model_loader import load_model, get_model, get_model_info
-
 from config import UPLOAD_DIR, OUTPUT_DIR, MASK_DIR, FILE_RETENTION_SECONDS, CLEANUP_INTERVAL_SECONDS
+
 import time
 import threading
 

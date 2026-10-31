@@ -27,7 +27,7 @@ timeout /t 2 /nobreak > nul
 
 echo  [1/3] Starting Backend Server...
 cd /d "%PROJECT_PATH%\backend"
-start "Stix Backend" cmd /k "uvicorn main:app --reload --port 8000"
+start "Stix Backend" cmd /k ".\venv\Scripts\python.exe -m uvicorn main:app --reload --port 8000"
 
 :: Wait for backend to start
 echo  [2/3] Waiting for backend to initialize...

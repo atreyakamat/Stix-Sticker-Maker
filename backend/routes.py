@@ -38,6 +38,7 @@ class JobResponse(BaseModel):
     warnings: List[str] = []
     review_reasons: List[str] = []
     needs_review: bool = False
+    analysis: Optional[dict] = None
 
 
 class BorderRequest(BaseModel):
@@ -52,17 +53,17 @@ class BatchExportRequest(BaseModel):
 
 
 # Helper Functions
-def process_image_task(job_id: str, image_path: Path, refine: bool = False):
+def process_image_task(job_id: str, image_path: Path, tier_config: Optional[dict] = None):
     """Background task to process an image using EDGE-FIRST pipeline"""
     try:
         job_manager.update_status(job_id, JobStatus.PROCESSING, 10)
-        
+
         # Load image
         image = Image.open(image_path)
         job_manager.update_status(job_id, JobStatus.PROCESSING, 20)
-        
-        # Process through EDGE-FIRST pipeline
-        result = process_sticker(image, refine=refine)
+
+        # Process through EDGE-FIRST pipeline using the selected quality tier
+        result = process_sticker(image, tier_config=tier_config)
         job_manager.update_status(job_id, JobStatus.PROCESSING, 80)
         
         # Save results
@@ -80,6 +81,7 @@ def process_image_task(job_id: str, image_path: Path, refine: bool = False):
         if job:
             job.edge_confidence = result.edge_confidence.value
             job.warnings = result.warnings
+            job.analysis = getattr(result, 'analysis', None)
             
             # Populate specific review reasons
             reasons = []
@@ -120,11 +122,10 @@ async def upload_images(
     Returns list of job IDs for tracking
     """
     jobs = []
-    
-    # Get refinement setting from tier
+
+    # Resolve the full inference recipe for this tier
     tier_config = QUALITY_TIERS.get(tier, QUALITY_TIERS[DEFAULT_QUALITY_TIER])
-    refine = tier_config.get("refine", False)
-    
+
     for file in files:
         # Validate file type (flexible check)
         filename = file.filename.lower()
@@ -150,7 +151,7 @@ async def upload_images(
         job = job_manager.create_job(job_id, file.filename, tier=tier)
         
         # Queue processing
-        background_tasks.add_task(process_image_task, job_id, upload_path, refine=refine)
+        background_tasks.add_task(process_image_task, job_id, upload_path, tier_config=tier_config)
         
         jobs.append(JobResponse(
             id=job.id,
@@ -179,7 +180,8 @@ async def get_job_status(job_id: str):
         edge_confidence=getattr(job, 'edge_confidence', None),
         warnings=getattr(job, 'warnings', []),
         review_reasons=getattr(job, 'review_reasons', []),
-        needs_review=getattr(job, 'needs_review', False)
+        needs_review=getattr(job, 'needs_review', False),
+        analysis=getattr(job, 'analysis', None)
     )
 
 
@@ -198,10 +200,12 @@ async def get_all_jobs():
             edge_confidence=getattr(job, 'edge_confidence', None),
             warnings=getattr(job, 'warnings', []),
             review_reasons=getattr(job, 'review_reasons', []),
-            needs_review=getattr(job, 'needs_review', False)
+            needs_review=getattr(job, 'needs_review', False),
+            analysis=getattr(job, 'analysis', None)
         )
         for job in jobs
     ]
+
 
 
 @router.post("/border")
@@ -356,11 +360,10 @@ async def reanalyze_job(
     job = job_manager.get_job(job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
-    
-    # Get refinement setting from tier
+
+    # Resolve the full inference recipe for this tier
     tier_config = QUALITY_TIERS.get(tier, QUALITY_TIERS[DEFAULT_QUALITY_TIER])
-    refine = tier_config.get("refine", False)
-    
+
     # Find the original upload file
     upload_files = list(UPLOAD_DIR.glob(f"{job_id}_*"))
     if not upload_files:
@@ -386,8 +389,9 @@ async def reanalyze_job(
     job.edge_confidence = None
     job.needs_review = False
     
-    # Queue reprocessing
-    background_tasks.add_task(process_image_task, job_id, upload_path, refine=refine)
+    # Update the job's tier and queue reprocessing
+    job.tier = tier
+    background_tasks.add_task(process_image_task, job_id, upload_path, tier_config=tier_config)
     
     return {
         "success": True,
@@ -639,6 +643,7 @@ async def get_editor_data(job_id: str):
         "warnings": getattr(job, "warnings", []),
         "review_reasons": getattr(job, "review_reasons", []),
         "needs_review": getattr(job, "needs_review", False),
+        "analysis": getattr(job, "analysis", None),
     }
 
     for key in ["original", "mask", "alpha", "transparent", "edited_mask", "with_border"]:
@@ -653,3 +658,47 @@ async def get_editor_data(job_id: str):
         data["dimensions"] = {"width": img.width, "height": img.height}
 
     return data
+
+
+@router.get("/jobs/{job_id}/analysis")
+async def get_job_analysis(job_id: str):
+    """
+    Get metrology and picture quality analysis for a processed sticker.
+    """
+    job = job_manager.get_job(job_id)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    analysis = getattr(job, "analysis", None)
+    if not analysis:
+        # Compute analysis on demand if missing
+        original_path = OUTPUT_DIR / f"{job_id}_original.png"
+        mask_path = OUTPUT_DIR / f"{job_id}_mask.png"
+        alpha_path = OUTPUT_DIR / f"{job_id}_alpha.png"
+
+        if original_path.exists() and mask_path.exists():
+            orig_img = Image.open(original_path)
+            mask_arr = np.array(Image.open(mask_path))
+            alpha_arr = np.array(Image.open(alpha_path)) if alpha_path.exists() else mask_arr
+            
+            from pipeline import analyze_image_metrics, EdgeConfidence
+            edge_conf_str = getattr(job, "edge_confidence", "medium")
+            try:
+                edge_conf = EdgeConfidence(edge_conf_str)
+            except Exception:
+                edge_conf = EdgeConfidence.MEDIUM
+
+            analysis = analyze_image_metrics(orig_img, mask_arr, alpha_arr, edge_conf)
+            job.analysis = analysis
+        else:
+            raise HTTPException(status_code=404, detail="Analysis data not available yet")
+
+    return {
+        "job_id": job_id,
+        "filename": job.filename,
+        "analysis": analysis,
+        "edge_confidence": getattr(job, "edge_confidence", None),
+        "needs_review": getattr(job, "needs_review", False),
+        "warnings": getattr(job, "warnings", [])
+    }
+

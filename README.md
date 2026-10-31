@@ -9,6 +9,8 @@ A professional-grade sticker background removal and editing platform. Extract st
 | Feature | Description |
 |---------|-------------|
 | **Edge-First AI** | BiRefNet model with geometric edge detection for white-on-white stickers |
+| **Quality Tiers** | Switch model + resolution per job: `fast` (lite), `balanced`, `quality` (HR matting + flip TTA) |
+| **Soft-Edge Matting** | Edge-aware guided-filter alpha preserves hair, glow and anti-aliasing |
 | **Manual Editing** | Brush tools to erase/restore mask areas with full undo/redo |
 | **Re-Background** | Test sticker edges on different backgrounds to spot defects |
 | **Canva-Style Borders** | Add customizable outlines with smooth, rounded edges |
@@ -110,25 +112,75 @@ Stix-Sticker-Maker/
 | `/api/border` | POST | Generate border for a sticker |
 | `/api/mask/save` | POST | Save edited mask |
 | `/api/rebackground` | POST | Generate background preview |
+| `/api/reanalyze/{id}` | POST | Re-run a job at a given `?tier=` |
 | `/api/download/{id}` | GET | Download processed sticker |
+| `/api/export/batch` | POST | Export multiple stickers as a ZIP |
+| `/api/model/info` | GET | Loaded models, device, and tiers |
+
+---
+
+## 🧠 Models & Quality Tiers
+
+The backend keeps a small in-memory LRU cache of models and loads them on
+demand. Each **quality tier** is a complete inference recipe (model +
+resolution + matting + flip TTA), selected per upload via `?tier=`:
+
+| Tier | Model | Res | Notes |
+|------|-------|-----|-------|
+| `fast` | `birefnet_lite` | 1024 | Lightweight, best for previews / bulk |
+| `balanced` *(default)* | `birefnet` | 1024 | Full BiRefNet with soft-edge matting |
+| `quality` | `birefnet_hr_matting` | 2048 | Highest accuracy + flip averaging (slow on CPU) |
+
+Available models (set `STIX_MODEL` or edit `QUALITY_TIERS` in `config.py`):
+`birefnet`, `birefnet_lite`, `birefnet_hr`, `birefnet_matting`,
+`birefnet_hr_matting`, `birefnet_portrait`, `rmbg14`.
+
+> First use of a model downloads it from Hugging Face (a few hundred MB each).
+> Pre-warm the cache with `python backend/download_models.py`.
+
+### Hardware / acceleration
+
+- **CPU** (default): works everywhere, including inside Docker.
+- **NVIDIA GPU**: set `STIX_DEVICE=cuda` with a CUDA build of PyTorch.
+- **AMD / Intel GPU on native Windows**: `pip install torch-directml` and set
+  `STIX_DEVICE=dml` to use the integrated GPU (not available inside the Linux
+  container). This is the fast path for the Radeon iGPU.
+
+> ✂️ **Upscaling** is handled by the separate [ScaleUp](https://github.com/atreyakamat/ScaleUp)
+> project — Stix stays focused on extraction. Run exported stickers through
+> ScaleUp for print-resolution output.
 
 ---
 
 ## 🐳 Docker Deployment
 
-For production deployment on a homelab or server:
-
 ```bash
-docker-compose up -d --build
+docker compose up -d --build
 ```
 
-See [DEPLOYMENT.md](./DEPLOYMENT.md) for full instructions.
+- Frontend: **http://localhost:8080**
+- Backend API: **http://localhost:8000** (health at `/health`)
+
+The frontend waits for the backend's healthcheck before starting. Models
+persist in the `stix_model_cache` volume. To pre-download models into the
+volume before first use:
+
+```bash
+docker compose run --rm backend python download_models.py
+```
+
+Configure via environment variables (see `.env.example`). See
+[DEPLOYMENT.md](./DEPLOYMENT.md) for full instructions.
 
 ---
 
 ## 🛠️ Configuration
 
-Edit `backend/config.py` to customize:
+Runtime settings come from environment variables (see `.env.example`):
+`STIX_DEVICE`, `STIX_MODEL`, `STIX_DEFAULT_TIER`, `STIX_MODEL_RES`,
+`STIX_MODEL_CACHE`.
+
+File lifecycle is in `backend/config.py`:
 
 ```python
 FILE_RETENTION_SECONDS = 3600   # How long to keep files (default: 1 hour)

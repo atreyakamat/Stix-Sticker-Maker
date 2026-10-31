@@ -8,7 +8,7 @@
 import { useState } from 'react'
 import { getImageUrl, exportBatch } from '../api'
 
-function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
+function Gallery({ jobs, selectedJob, onSelect, onUploadMore, onAnalyze }) {
     const [isExporting, setIsExporting] = useState(false)
 
     const completedJobs = jobs.filter(j => j.status === 'complete')
@@ -55,7 +55,7 @@ function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
                         Processing {processingJobs.length} image{processingJobs.length > 1 ? 's' : ''}... 
                     </span>
                     <span className="processing-hint">
-                        Click on completed stickers to edit
+                        Click on completed stickers to edit or analyze
                     </span>
                 </div>
             )}
@@ -79,6 +79,10 @@ function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
                         job={job}
                         isSelected={selectedJob?.id === job.id}
                         onClick={() => onSelect(job)}
+                        onAnalyze={(e) => {
+                            e.stopPropagation()
+                            if (onAnalyze) onAnalyze(job)
+                        }}
                     />
                 ))}
             </div>
@@ -111,12 +115,11 @@ function Gallery({ jobs, selectedJob, onSelect, onUploadMore }) {
 /**
  * Individual gallery item
  */
-function GalleryItem({ job, isSelected, onClick }) {
+function GalleryItem({ job, isSelected, onClick, onAnalyze }) {
     const imageUrl = job.status === 'complete'
         ? getImageUrl(job.paths?.transparent)
         : null
 
-    // Determine status indicator
     const getStatusIcon = () => {
         if (job.status === 'complete') {
             switch (job.edge_confidence) {
@@ -142,6 +145,17 @@ function GalleryItem({ job, isSelected, onClick }) {
             {/* Needs Review Badge */}
             {job.needs_review && <div className="review-badge">Review</div>}
 
+            {/* Analyze Action Button */}
+            {job.status === 'complete' && (
+                <button
+                    className="btn-analyze-item"
+                    onClick={onAnalyze}
+                    title="Analyze Picture Specs & Print Quality"
+                >
+                    📊 Analyze
+                </button>
+            )}
+
             {/* Image or Loading State */}
             <div className="gallery-item-image">
                 {imageUrl ? (
@@ -163,7 +177,7 @@ function GalleryItem({ job, isSelected, onClick }) {
                 <span className="status-filename">{job.filename}</span>
             </div>
 
-            {/* Progress Bar (only when processing) */}
+            {/* Progress Bar */}
             {job.status === 'processing' && (
                 <div className="gallery-item-progress">
                     <div
@@ -175,5 +189,6 @@ function GalleryItem({ job, isSelected, onClick }) {
         </div>
     )
 }
+
 
 export default Gallery

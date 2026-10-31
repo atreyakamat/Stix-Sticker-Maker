@@ -1,0 +1,24 @@
+# Never copy the local virtualenv or caches into the image — they bloat the
+# build context by gigabytes and can carry the wrong platform's binaries.
+venv/
+.venv/
+__pycache__/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Runtime artifacts
+output/
+uploads/
+masks/
+*.log
+
+# Local Hugging Face cache (models are cached in a Docker volume instead)
+.cache/
+hf_cache/
+
+# Dev noise
+.pytest_cache/
+.mypy_cache/
+.DS_Store

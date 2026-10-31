@@ -1,27 +1,26 @@
 # Build Stage
-FROM node:18-alpine as build
+FROM node:18-alpine AS build
 
 WORKDIR /app
 
-# Copy package info
+# Install dependencies (use npm ci when a lockfile is present for reproducible builds)
 COPY package*.json ./
+RUN if [ -f package-lock.json ]; then npm ci; else npm install; fi
 
-# Install dependencies
-RUN npm install
-
-# Copy source code
+# Copy source
 COPY . .
 
-# Build for production
+# Empty API base => the app calls /api and /output on its own origin, which
+# nginx proxies to the backend container. Override at build time if needed.
+ARG VITE_API_BASE=""
+ENV VITE_API_BASE=$VITE_API_BASE
+
 RUN npm run build
 
 # Production Stage with Nginx
 FROM nginx:alpine
 
-# Copy built assets from builder stage
 COPY --from=build /app/dist /usr/share/nginx/html
-
-# Copy custom nginx config
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
 EXPOSE 80

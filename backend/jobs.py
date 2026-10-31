@@ -34,6 +34,7 @@ class Job:
     review_reasons: List[str] = field(default_factory=list)
     needs_review: bool = False
     tier: str = "balanced"
+    analysis: Optional[dict] = None
 
 
 class JobManager:

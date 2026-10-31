@@ -2,7 +2,11 @@
  * API client for Stix backend
  */
 
-const API_BASE = 'http://localhost:8000/api'
+// Base URL for the backend. In local dev this defaults to the uvicorn server
+// on :8000. In Docker it's built with VITE_API_BASE="" so requests go to the
+// same origin and nginx proxies /api and /output to the backend container.
+const ORIGIN = import.meta.env.VITE_API_BASE ?? 'http://localhost:8000'
+const API_BASE = `${ORIGIN}/api`
 
 export async function uploadImages(files, tier = 'balanced') {
     const formData = new FormData()
@@ -112,8 +116,9 @@ export async function exportBatch(jobIds, includeBorder = true) {
 
 export function getImageUrl(path) {
     if (!path) return null
-    // Path comes as /output/filename.png from backend
-    return `http://localhost:8000${path}`
+    // Path comes as /output/filename.png from backend.
+    // ORIGIN is '' in Docker (same-origin, proxied by nginx).
+    return `${ORIGIN}${path}`
 }
 
 
@@ -231,3 +236,14 @@ export async function getModelInfo() {
 
     return response.json()
 }
+
+export async function getJobAnalysis(jobId) {
+    const response = await fetch(`${API_BASE}/jobs/${jobId}/analysis`)
+
+    if (!response.ok) {
+        throw new Error('Failed to get picture analysis')
+    }
+
+    return response.json()
+}
+
