@@ -36,6 +36,9 @@ services:
     restart: unless-stopped
     ports:
       - "8080:80"
+    environment:
+      # Pages allowed to show the app in a frame: itself and the House of Stix control room.
+      FRAME_ANCESTORS: "'self' ${CONTROL_ROOM_ORIGIN:-http://localhost:8200}"
     depends_on:
       backend:
         condition: service_healthy
