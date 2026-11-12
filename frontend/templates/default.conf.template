@@ -1,5 +1,12 @@
+# Filled in at start by the nginx image: ${FRAME_ANCESTORS} comes from the environment.
 server {
     listen 80;
+    server_tokens off;
+
+    # Only this app and the House of Stix control room may show it in a frame.
+    add_header Content-Security-Policy "frame-ancestors ${FRAME_ANCESTORS}" always;
+    add_header X-Content-Type-Options "nosniff" always;
+    add_header Referrer-Policy "strict-origin-when-cross-origin" always;
 
     # Allow large sticker uploads
     client_max_body_size 50M;
@@ -22,6 +29,12 @@ server {
         proxy_connect_timeout 60s;
         proxy_read_timeout 300s;
         proxy_send_timeout 300s;
+    }
+
+    # Health for the control room and Docker: answered by the backend (model loaded).
+    location = /health {
+        proxy_pass http://backend:8000/health;
+        access_log off;
     }
 
     # Proxy processed sticker images

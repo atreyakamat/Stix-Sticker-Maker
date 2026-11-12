@@ -4,6 +4,10 @@ services:
     image: stix-backend
     container_name: stix-backend
     restart: unless-stopped
+    # AI models live in RAM; cap it so one big job can't starve the other tools.
+    mem_limit: 4g
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "8000:8000"
     environment:
@@ -34,8 +38,14 @@ services:
     image: stix-frontend
     container_name: stix-frontend
     restart: unless-stopped
+    mem_limit: 64m
+    security_opt:
+      - no-new-privileges:true
     ports:
       - "8080:80"
+    environment:
+      # Pages allowed to show the app in a frame: itself and the House of Stix control room.
+      FRAME_ANCESTORS: "'self' ${CONTROL_ROOM_ORIGIN:-http://localhost:8200}"
     depends_on:
       backend:
         condition: service_healthy

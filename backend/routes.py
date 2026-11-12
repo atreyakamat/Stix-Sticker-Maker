@@ -142,7 +142,9 @@ async def upload_images(
         job_id = str(uuid.uuid4())[:8]
         
         # Save upload
-        upload_path = UPLOAD_DIR / f"{job_id}_{file.filename}"
+        # Keep only the bare file name: a crafted name like "../../x" must never leave UPLOAD_DIR.
+        safe_name = Path(file.filename).name.replace("\\", "_")[:120] or "upload"
+        upload_path = UPLOAD_DIR / f"{job_id}_{safe_name}"
         content = await file.read()
         with open(upload_path, 'wb') as f:
             f.write(content)

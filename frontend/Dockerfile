@@ -21,7 +21,9 @@ RUN npm run build
 FROM nginx:alpine
 
 COPY --from=build /app/dist /usr/share/nginx/html
-COPY nginx.conf /etc/nginx/conf.d/default.conf
+# The nginx image fills ${FRAME_ANCESTORS} into this template when it starts.
+COPY templates/default.conf.template /etc/nginx/templates/default.conf.template
+ENV FRAME_ANCESTORS="'self'"
 
 EXPOSE 80
 
